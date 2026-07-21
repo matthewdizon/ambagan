@@ -63,6 +63,53 @@ describe("calculatePersonBalances", () => {
     expect(calculatePersonBalances(trip).map((balance) => balance.balanceMinor)).toEqual([60000, -10000, -50000]);
   });
 
+  it("calculates itemized expenses from aggregated item shares", () => {
+    const trip = tripWithExpenses([
+      {
+        id: "expense_1",
+        description: "Resort trip",
+        amountMinor: 250000,
+        paidByPersonId: "a",
+        splitType: "itemized",
+        createdAt: "2026-07-20T00:00:00.000Z",
+        lineItems: [
+          {
+            id: "line_1",
+            description: "Entrance",
+            amountMinor: 150000,
+            participantIds: ["a", "b", "c"],
+            shares: [
+              { personId: "a", amountMinor: 50000 },
+              { personId: "b", amountMinor: 50000 },
+              { personId: "c", amountMinor: 50000 }
+            ]
+          },
+          {
+            id: "line_2",
+            description: "Pillows",
+            amountMinor: 100000,
+            participantIds: ["b", "c"],
+            shares: [
+              { personId: "b", amountMinor: 50000 },
+              { personId: "c", amountMinor: 50000 }
+            ]
+          }
+        ],
+        shares: [
+          { personId: "a", amountMinor: 50000 },
+          { personId: "b", amountMinor: 100000 },
+          { personId: "c", amountMinor: 100000 }
+        ]
+      }
+    ]);
+
+    expect(calculatePersonBalances(trip)).toEqual([
+      { personId: "a", paidMinor: 250000, shareMinor: 50000, balanceMinor: 200000 },
+      { personId: "b", paidMinor: 0, shareMinor: 100000, balanceMinor: -100000 },
+      { personId: "c", paidMinor: 0, shareMinor: 100000, balanceMinor: -100000 }
+    ]);
+  });
+
   it("combines multiple payers across multiple expenses", () => {
     const trip = tripWithExpenses([
       {

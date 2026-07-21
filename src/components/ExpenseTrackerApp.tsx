@@ -24,8 +24,15 @@ import { calculatePersonBalances, calculateSettlementReceipts, calculateSettleme
 import { createShareUrl, decodeTripFromHash } from "@/lib/share";
 import { loadTripFromStorage, saveTripToStorage } from "@/lib/storage";
 import { formatMoney, minorToPesoInput, pesoToMinor, splitEvenly } from "@/lib/money";
-import type { Expense, ExpenseShare, Person, SplitType, Trip } from "@/types";
+import type { Expense, ExpenseLineItem, ExpenseShare, Person, SplitType, Trip } from "@/types";
 import { toast } from "sonner";
+
+type ExpenseLineItemDraft = {
+  id: string;
+  description: string;
+  amount: string;
+  participantIds: string[];
+};
 
 type ExpenseDraft = {
   description: string;
@@ -35,10 +42,11 @@ type ExpenseDraft = {
   splitType: SplitType;
   participantIds: string[];
   exactShares: Record<string, string>;
+  lineItems: ExpenseLineItemDraft[];
 };
 
 type ExpenseDraftError = {
-  field: "description" | "amount" | "paidByPersonId" | "participantIds" | "exactShares";
+  field: "description" | "amount" | "paidByPersonId" | "participantIds" | "exactShares" | "lineItems";
   message: string;
 };
 
@@ -57,7 +65,8 @@ const emptyDraft: ExpenseDraft = {
   paidByPersonId: "",
   splitType: "equal",
   participantIds: [],
-  exactShares: {}
+  exactShares: {},
+  lineItems: []
 };
 
 function createId(prefix: string) {
@@ -95,6 +104,15 @@ function getTodayInputDate() {
 
 function getExpenseDate(expense: Expense) {
   return expense.date ?? expense.createdAt.slice(0, 10);
+}
+
+function createLineItemDraft(people: Person[]): ExpenseLineItemDraft {
+  return {
+    id: createId("line_item"),
+    description: "",
+    amount: "",
+    participantIds: people.map((person) => person.id)
+  };
 }
 
 function formatExpenseDate(value: string) {
@@ -140,11 +158,49 @@ function expenseToDraft(expense: Expense, people: Person[]): ExpenseDraft {
         const share = expense.shares.find((item) => item.personId === person.id);
         return [person.id, share ? minorToPesoInput(share.amountMinor) : ""];
       })
-    )
+    ),
+    lineItems: expense.lineItems?.map((item) => ({
+      id: item.id,
+      description: item.description,
+      amount: minorToPesoInput(item.amountMinor),
+      participantIds: item.participantIds
+    })) ?? []
   };
 }
 
+function getItemizedAmountMinor(draft: ExpenseDraft): number {
+  return draft.lineItems.reduce((total, item) => total + pesoToMinor(item.amount), 0);
+}
+
+function aggregateShares(shares: ExpenseShare[]): ExpenseShare[] {
+  const totals = new Map<string, number>();
+
+  for (const share of shares) {
+    totals.set(share.personId, (totals.get(share.personId) ?? 0) + share.amountMinor);
+  }
+
+  return Array.from(totals, ([personId, amountMinor]) => ({ personId, amountMinor })).filter((share) => share.amountMinor > 0);
+}
+
+function buildLineItems(draft: ExpenseDraft): ExpenseLineItem[] {
+  return draft.lineItems.map((item) => {
+    const amountMinor = pesoToMinor(item.amount);
+
+    return {
+      id: item.id,
+      description: item.description.trim(),
+      amountMinor,
+      participantIds: item.participantIds,
+      shares: splitEvenly(amountMinor, item.participantIds)
+    };
+  });
+}
+
 function buildShares(draft: ExpenseDraft, amountMinor: number): ExpenseShare[] {
+  if (draft.splitType === "itemized") {
+    return aggregateShares(buildLineItems(draft).flatMap((item) => item.shares));
+  }
+
   if (draft.splitType === "equal") {
     return splitEvenly(amountMinor, draft.participantIds);
   }
@@ -156,13 +212,31 @@ function buildShares(draft: ExpenseDraft, amountMinor: number): ExpenseShare[] {
 }
 
 function validateExpenseDraft(draft: ExpenseDraft): ExpenseDraftError | null {
-  const amountMinor = pesoToMinor(draft.amount);
+  const amountMinor = draft.splitType === "itemized" ? getItemizedAmountMinor(draft) : pesoToMinor(draft.amount);
 
   if (!draft.description.trim()) return { field: "description", message: "Add a description." };
+  if (!draft.paidByPersonId) return { field: "paidByPersonId", message: "Choose who paid." };
+
+  if (draft.splitType === "itemized") {
+    if (draft.lineItems.length === 0) return { field: "lineItems", message: "Add at least one item." };
+
+    for (const item of draft.lineItems) {
+      const itemAmountMinor = pesoToMinor(item.amount);
+      if (!item.description.trim()) return { field: "lineItems", message: "Each item needs a name." };
+      if (!Number.isFinite(itemAmountMinor) || itemAmountMinor <= 0) {
+        return { field: "lineItems", message: "Each item needs a valid amount greater than zero." };
+      }
+      if (item.participantIds.length === 0) {
+        return { field: "lineItems", message: "Each item needs at least one person." };
+      }
+    }
+
+    return null;
+  }
+
   if (!Number.isFinite(amountMinor) || amountMinor <= 0) {
     return { field: "amount", message: "Enter a valid amount greater than zero." };
   }
-  if (!draft.paidByPersonId) return { field: "paidByPersonId", message: "Choose who paid." };
   if (draft.participantIds.length === 0) {
     return { field: "participantIds", message: "Choose at least one person involved." };
   }
@@ -183,6 +257,7 @@ function validateExpenseDraft(draft: ExpenseDraft): ExpenseDraftError | null {
 }
 
 function getSplitTypeLabel(splitType: SplitType) {
+  if (splitType === "itemized") return "Itemized breakdown";
   return splitType === "equal" ? "Split equally" : "Enter exact amounts";
 }
 
@@ -192,7 +267,8 @@ function createDraftForTrip(trip: Trip): ExpenseDraft {
     date: getTodayInputDate(),
     paidByPersonId: trip.people[0]?.id ?? "",
     participantIds: trip.people.map((person) => person.id),
-    exactShares: Object.fromEntries(trip.people.map((person) => [person.id, ""]))
+    exactShares: Object.fromEntries(trip.people.map((person) => [person.id, ""])),
+    lineItems: []
   };
 }
 
@@ -434,8 +510,9 @@ export function ExpenseTrackerApp() {
       return;
     }
 
-    const amountMinor = pesoToMinor(draft.amount);
+    const amountMinor = draft.splitType === "itemized" ? getItemizedAmountMinor(draft) : pesoToMinor(draft.amount);
     const shares = buildShares(draft, amountMinor);
+    const lineItems = draft.splitType === "itemized" ? buildLineItems(draft) : undefined;
     const now = new Date().toISOString();
     const expense: Expense = {
       id: editingExpenseId ?? createId("expense"),
@@ -443,6 +520,7 @@ export function ExpenseTrackerApp() {
       amountMinor,
       paidByPersonId: draft.paidByPersonId,
       shares,
+      lineItems,
       splitType: draft.splitType,
       date: draft.date || getTodayInputDate(),
       createdAt: editingExpenseId
@@ -533,6 +611,30 @@ export function ExpenseTrackerApp() {
         ...Object.fromEntries(selectedTrip.people.map((person) => [person.id, ""])),
         ...current.exactShares
       }
+    }));
+  }
+
+  function addLineItem() {
+    if (!selectedTrip) return;
+
+    setDraft((current) => ({
+      ...current,
+      lineItems: [...current.lineItems, createLineItemDraft(selectedTrip.people)]
+    }));
+  }
+
+  function updateLineItem(lineItemId: string, nextLineItem: ExpenseLineItemDraft) {
+    setDraft((current) => ({
+      ...current,
+      lineItems: current.lineItems.map((item) => (item.id === lineItemId ? nextLineItem : item))
+    }));
+    if (draftError) setDraftError(null);
+  }
+
+  function removeLineItem(lineItemId: string) {
+    setDraft((current) => ({
+      ...current,
+      lineItems: current.lineItems.filter((item) => item.id !== lineItemId)
     }));
   }
 
@@ -717,15 +819,9 @@ export function ExpenseTrackerApp() {
                       <div>
                         <h3>{expense.description}</h3>
                         <p>
-                          {formatExpenseDate(getExpenseDate(expense))} · Paid by {getPersonName(selectedTrip, expense.paidByPersonId)} · {expense.splitType === "equal" ? "Equal split" : "Exact split"}
+                          {formatExpenseDate(getExpenseDate(expense))} · Paid by {getPersonName(selectedTrip, expense.paidByPersonId)} · {getSplitTypeLabel(expense.splitType)}
                         </p>
-                        <div className="share-list">
-                          {expense.shares.map((share) => (
-                            <span key={`${expense.id}-${share.personId}`}>
-                              {getPersonName(selectedTrip, share.personId)}: {formatMoney(share.amountMinor)}
-                            </span>
-                          ))}
-                        </div>
+                        <ExpenseBreakdown expense={expense} people={selectedTrip.people} />
                       </div>
                       <div className="expense-actions">
                         <strong>{formatMoney(expense.amountMinor)}</strong>
@@ -775,6 +871,9 @@ export function ExpenseTrackerApp() {
         onDraftChange={updateDraft}
         onParticipantChange={updateParticipant}
         onSetAllParticipants={setAllParticipants}
+        onAddLineItem={addLineItem}
+        onLineItemChange={updateLineItem}
+        onLineItemRemove={removeLineItem}
       />
     </main>
   );
@@ -823,6 +922,43 @@ function TripActions({
   );
 }
 
+function ExpenseBreakdown({ expense, people }: { expense: Expense; people: Person[] }) {
+  function personName(personId: string) {
+    return people.find((person) => person.id === personId)?.name ?? "Unknown";
+  }
+
+  return (
+    <div className="expense-breakdown">
+      {expense.lineItems && expense.lineItems.length > 0 ? (
+        <div className="line-item-breakdown">
+          {expense.lineItems.map((item) => (
+            <div className="line-item-breakdown-row" key={item.id}>
+              <div>
+                <strong>{item.description}</strong>
+                <small>{formatMoney(item.amountMinor)} split among {item.participantIds.map(personName).join(", ")}</small>
+              </div>
+              <div className="share-list">
+                {item.shares.map((share) => (
+                  <span key={`${item.id}-${share.personId}`}>
+                    {personName(share.personId)}: {formatMoney(share.amountMinor)}
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+      <div className="share-list">
+        {expense.shares.map((share) => (
+          <span key={`${expense.id}-${share.personId}`}>
+            {personName(share.personId)} total: {formatMoney(share.amountMinor)}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ExpenseDialog({
   draft,
   error,
@@ -833,7 +969,10 @@ function ExpenseDialog({
   onSubmit,
   onDraftChange,
   onParticipantChange,
-  onSetAllParticipants
+  onSetAllParticipants,
+  onAddLineItem,
+  onLineItemChange,
+  onLineItemRemove
 }: {
   draft: ExpenseDraft;
   error: ExpenseDraftError | null;
@@ -845,6 +984,9 @@ function ExpenseDialog({
   onDraftChange: (draft: ExpenseDraft) => void;
   onParticipantChange: (personId: string, checked: boolean) => void;
   onSetAllParticipants: (checked: boolean) => void;
+  onAddLineItem: () => void;
+  onLineItemChange: (lineItemId: string, nextLineItem: ExpenseLineItemDraft) => void;
+  onLineItemRemove: (lineItemId: string) => void;
 }) {
   return (
     <Dialog open={isOpen} onOpenChange={onOpenChange}>
@@ -863,6 +1005,9 @@ function ExpenseDialog({
           onDraftChange={onDraftChange}
           onParticipantChange={onParticipantChange}
           onSetAllParticipants={onSetAllParticipants}
+          onAddLineItem={onAddLineItem}
+          onLineItemChange={onLineItemChange}
+          onLineItemRemove={onLineItemRemove}
           isEditing={isEditing}
         />
       </DialogContent>
@@ -878,6 +1023,9 @@ function ExpenseForm({
   onDraftChange,
   onParticipantChange,
   onSetAllParticipants,
+  onAddLineItem,
+  onLineItemChange,
+  onLineItemRemove,
   isEditing
 }: {
   draft: ExpenseDraft;
@@ -887,11 +1035,15 @@ function ExpenseForm({
   onDraftChange: (draft: ExpenseDraft) => void;
   onParticipantChange: (personId: string, checked: boolean) => void;
   onSetAllParticipants: (checked: boolean) => void;
+  onAddLineItem: () => void;
+  onLineItemChange: (lineItemId: string, nextLineItem: ExpenseLineItemDraft) => void;
+  onLineItemRemove: (lineItemId: string) => void;
   isEditing: boolean;
 }) {
   const selectedPeople = people.filter((person) => draft.participantIds.includes(person.id));
   const allPeopleSelected = people.length > 0 && draft.participantIds.length === people.length;
   const selectedPayerName = people.find((person) => person.id === draft.paidByPersonId)?.name ?? "Choose payer";
+  const itemizedTotalMinor = getItemizedAmountMinor(draft);
 
   return (
     <form className="expense-form" onSubmit={onSubmit}>
@@ -909,7 +1061,9 @@ function ExpenseForm({
           <Input
             aria-invalid={error?.field === "amount"}
             inputMode="decimal"
+            disabled={draft.splitType === "itemized"}
             value={draft.amount}
+            placeholder={draft.splitType === "itemized" ? formatMoney(itemizedTotalMinor) : undefined}
             onChange={(event) => onDraftChange({ ...draft, amount: event.target.value })}
           />
         </label>
@@ -944,7 +1098,18 @@ function ExpenseForm({
           <Select
             value={draft.splitType}
             onValueChange={(splitType) => {
-              if (splitType) onDraftChange({ ...draft, splitType: splitType as SplitType });
+              if (!splitType) return;
+
+              const nextSplitType = splitType as SplitType;
+              onDraftChange({
+                ...draft,
+                amount: nextSplitType === "itemized" ? "" : draft.amount,
+                splitType: nextSplitType,
+                lineItems:
+                  nextSplitType === "itemized" && draft.lineItems.length === 0
+                    ? [createLineItemDraft(people)]
+                    : draft.lineItems
+              });
             }}
           >
             <SelectTrigger className="w-full">
@@ -953,57 +1118,201 @@ function ExpenseForm({
             <SelectContent>
               <SelectItem value="equal">Split equally</SelectItem>
               <SelectItem value="exact">Enter exact amounts</SelectItem>
+              <SelectItem value="itemized">Itemized breakdown</SelectItem>
             </SelectContent>
           </Select>
         </label>
       </div>
 
-      <div className="participant-toolbar">
-        <span>People involved</span>
-        <Button className="ghost-button" variant="outline" type="button" onClick={() => onSetAllParticipants(!allPeopleSelected)} disabled={people.length === 0}>
-          {allPeopleSelected ? "Clear all" : "Select everyone"}
-        </Button>
-      </div>
-      <div className="participant-grid" aria-invalid={error?.field === "participantIds"}>
-        {people.map((person) => (
-          <label className="check-row" key={person.id}>
-            <Checkbox
-              checked={draft.participantIds.includes(person.id)}
-              onCheckedChange={(checked) => onParticipantChange(person.id, checked === true)}
-            />
-            <span>{person.name}</span>
-          </label>
-        ))}
-      </div>
+      {draft.splitType === "itemized" ? (
+        <LineItemEditor
+          error={error}
+          people={people}
+          lineItems={draft.lineItems}
+          totalMinor={itemizedTotalMinor}
+          onAddLineItem={onAddLineItem}
+          onLineItemChange={onLineItemChange}
+          onLineItemRemove={onLineItemRemove}
+        />
+      ) : (
+        <>
+          <div className="participant-toolbar">
+            <span>People involved</span>
+            <Button className="ghost-button" variant="outline" type="button" onClick={() => onSetAllParticipants(!allPeopleSelected)} disabled={people.length === 0}>
+              {allPeopleSelected ? "Clear all" : "Select everyone"}
+            </Button>
+          </div>
+          <ParticipantSelector
+            people={people}
+            selectedPersonIds={draft.participantIds}
+            ariaInvalid={error?.field === "participantIds"}
+            onPersonChange={onParticipantChange}
+          />
 
-      {draft.splitType === "exact" ? (
-        <div className="exact-grid">
-          {selectedPeople.map((person) => (
-            <label key={person.id}>
-              {person.name}
-              <Input
-                aria-invalid={error?.field === "exactShares"}
-                inputMode="decimal"
-                value={draft.exactShares[person.id] ?? ""}
-                onChange={(event) =>
-                  onDraftChange({
-                    ...draft,
-                    exactShares: {
-                      ...draft.exactShares,
-                      [person.id]: event.target.value
+          {draft.splitType === "exact" ? (
+            <div className="exact-grid">
+              {selectedPeople.map((person) => (
+                <label key={person.id}>
+                  {person.name}
+                  <Input
+                    aria-invalid={error?.field === "exactShares"}
+                    inputMode="decimal"
+                    value={draft.exactShares[person.id] ?? ""}
+                    onChange={(event) =>
+                      onDraftChange({
+                        ...draft,
+                        exactShares: {
+                          ...draft.exactShares,
+                          [person.id]: event.target.value
+                        }
+                      })
                     }
-                  })
-                }
-              />
-            </label>
-          ))}
-        </div>
-      ) : null}
+                  />
+                </label>
+              ))}
+            </div>
+          ) : null}
+        </>
+      )}
 
       <Button className="submit-button" type="submit" disabled={people.length === 0}>
         {isEditing ? "Save expense" : "Add ambag"}
       </Button>
     </form>
+  );
+}
+
+function LineItemEditor({
+  error,
+  people,
+  lineItems,
+  totalMinor,
+  onAddLineItem,
+  onLineItemChange,
+  onLineItemRemove
+}: {
+  error: ExpenseDraftError | null;
+  people: Person[];
+  lineItems: ExpenseLineItemDraft[];
+  totalMinor: number;
+  onAddLineItem: () => void;
+  onLineItemChange: (lineItemId: string, nextLineItem: ExpenseLineItemDraft) => void;
+  onLineItemRemove: (lineItemId: string) => void;
+}) {
+  function toggleParticipant(item: ExpenseLineItemDraft, personId: string, checked: boolean) {
+    const participantIds = checked
+      ? [...new Set([...item.participantIds, personId])]
+      : item.participantIds.filter((id) => id !== personId);
+
+    onLineItemChange(item.id, { ...item, participantIds });
+  }
+
+  function setEveryParticipant(item: ExpenseLineItemDraft, checked: boolean) {
+    onLineItemChange(item.id, {
+      ...item,
+      participantIds: checked ? people.map((person) => person.id) : []
+    });
+  }
+
+  return (
+    <section className="line-item-editor" aria-invalid={error?.field === "lineItems"}>
+      <div className="participant-toolbar">
+        <span>Itemized breakdown</span>
+        <strong>{formatMoney(totalMinor)}</strong>
+      </div>
+      <div className="line-item-list">
+        {lineItems.map((item, index) => {
+          const allPeopleSelected = people.length > 0 && item.participantIds.length === people.length;
+          const itemAmountMinor = pesoToMinor(item.amount);
+          const shares = splitEvenly(Number.isFinite(itemAmountMinor) ? itemAmountMinor : 0, item.participantIds);
+
+          return (
+            <article className="line-item-card" key={item.id}>
+              <div className="line-item-heading">
+                <strong>Item {index + 1}</strong>
+                <Button
+                  className="ghost-button"
+                  variant="outline"
+                  type="button"
+                  onClick={() => onLineItemRemove(item.id)}
+                  disabled={lineItems.length === 1}
+                >
+                  Remove
+                </Button>
+              </div>
+              <div className="form-grid">
+                <label>
+                  Item name
+                  <Input
+                    aria-invalid={error?.field === "lineItems"}
+                    value={item.description}
+                    onChange={(event) => onLineItemChange(item.id, { ...item, description: event.target.value })}
+                  />
+                </label>
+                <label>
+                  Amount
+                  <Input
+                    aria-invalid={error?.field === "lineItems"}
+                    inputMode="decimal"
+                    value={item.amount}
+                    onChange={(event) => onLineItemChange(item.id, { ...item, amount: event.target.value })}
+                  />
+                </label>
+              </div>
+              <div className="participant-toolbar">
+                <span>Split among</span>
+                <Button className="ghost-button" variant="outline" type="button" onClick={() => setEveryParticipant(item, !allPeopleSelected)}>
+                  {allPeopleSelected ? "Clear all" : "Select everyone"}
+                </Button>
+              </div>
+              <ParticipantSelector
+                people={people}
+                selectedPersonIds={item.participantIds}
+                onPersonChange={(personId, checked) => toggleParticipant(item, personId, checked)}
+              />
+              {shares.length > 0 ? (
+                <div className="share-list">
+                  {shares.map((share) => (
+                    <span key={`${item.id}-share-${share.personId}`}>
+                      {people.find((person) => person.id === share.personId)?.name ?? "Unknown"}: {formatMoney(share.amountMinor)}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </article>
+          );
+        })}
+      </div>
+      <Button className="ghost-button add-line-item-button" variant="outline" type="button" onClick={onAddLineItem}>
+        Add item
+      </Button>
+    </section>
+  );
+}
+
+function ParticipantSelector({
+  people,
+  selectedPersonIds,
+  ariaInvalid,
+  onPersonChange
+}: {
+  people: Person[];
+  selectedPersonIds: string[];
+  ariaInvalid?: boolean;
+  onPersonChange: (personId: string, checked: boolean) => void;
+}) {
+  return (
+    <div className="participant-grid" aria-invalid={ariaInvalid}>
+      {people.map((person) => (
+        <label className="check-row" key={person.id}>
+          <Checkbox
+            checked={selectedPersonIds.includes(person.id)}
+            onCheckedChange={(checked) => onPersonChange(person.id, checked === true)}
+          />
+          <span>{person.name}</span>
+        </label>
+      ))}
+    </div>
   );
 }
 
