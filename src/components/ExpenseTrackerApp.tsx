@@ -21,7 +21,7 @@ import {
 } from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
 import { calculatePersonBalances, calculateSettlementReceipts, calculateSettlements, getTripTotalMinor } from "@/lib/calculations";
-import { createShareUrl, decodeTripFromHash } from "@/lib/share";
+import { decodeTripFromHash } from "@/lib/share";
 import { loadTripFromStorage, saveTripToStorage } from "@/lib/storage";
 import { formatMoney, minorToPesoInput, pesoToMinor, splitEvenly } from "@/lib/money";
 import type { Expense, ExpenseLineItem, ExpenseShare, Person, SplitType, Trip } from "@/types";
@@ -272,7 +272,7 @@ function createDraftForTrip(trip: Trip): ExpenseDraft {
   };
 }
 
-export function ExpenseTrackerApp() {
+export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedTrip?: Trip | null }) {
   const [isReady, setIsReady] = useState(false);
   const [trip, setTrip] = useState<Trip | null>(null);
   const [sharedTrip, setSharedTrip] = useState<Trip | null>(null);
@@ -292,12 +292,12 @@ export function ExpenseTrackerApp() {
 
   useEffect(() => {
     const loadedTrip = loadTripFromStorage();
-    const loadedSharedTrip = decodeTripFromHash(window.location.hash);
+    const loadedSharedTrip = initialSharedTrip ?? decodeTripFromHash(window.location.hash);
 
     setTrip(loadedTrip ?? createTrip("Untitled ambagan"));
     setSharedTrip(loadedSharedTrip);
     setIsReady(true);
-  }, []);
+  }, [initialSharedTrip]);
 
   useEffect(() => {
     if (!isReady || !trip) return;
@@ -407,7 +407,7 @@ export function ExpenseTrackerApp() {
       setDraft(createDraftForTrip(importedTrip));
       setDraftError(null);
       setEditingExpenseId(null);
-      window.history.replaceState(null, "", window.location.pathname);
+      window.history.replaceState(null, "", "/");
       showNotice("success", "JSON opened.");
     } catch {
       showNotice("error", "That file does not look like a valid Ambagan export.");
@@ -571,7 +571,22 @@ export function ExpenseTrackerApp() {
     if (!selectedTrip) return;
 
     try {
-      await navigator.clipboard.writeText(createShareUrl(selectedTrip, window.location.origin));
+      const response = await fetch("/api/shares", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(selectedTrip)
+      });
+
+      if (!response.ok) {
+        throw new Error("Share link request failed.");
+      }
+
+      const data = (await response.json()) as { path?: string };
+      if (!data.path) {
+        throw new Error("Share link response was missing a path.");
+      }
+
+      await navigator.clipboard.writeText(new URL(data.path, window.location.origin).toString());
       showNotice("success", "Read-only share link copied.");
     } catch {
       showNotice("error", "Could not copy the share link.");
@@ -587,7 +602,7 @@ export function ExpenseTrackerApp() {
     setDraft(createDraftForTrip(editableTrip));
     setDraftError(null);
     setEditingExpenseId(null);
-    window.history.replaceState(null, "", window.location.pathname);
+    window.history.replaceState(null, "", "/");
     showNotice("success", "Editable copy saved.");
   }
 
