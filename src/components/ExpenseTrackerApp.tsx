@@ -206,6 +206,7 @@ export function ExpenseTrackerApp() {
   const [draft, setDraft] = useState<ExpenseDraft>(emptyDraft);
   const [draftError, setDraftError] = useState<ExpenseDraftError | null>(null);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -404,12 +405,22 @@ export function ExpenseTrackerApp() {
   function resetExpenseForm() {
     if (!selectedTrip) {
       setDraft(emptyDraft);
+      setDraftError(null);
+      setEditingExpenseId(null);
       return;
     }
 
     setDraft(createDraftForTrip(selectedTrip));
     setDraftError(null);
     setEditingExpenseId(null);
+  }
+
+  function openAddExpenseDialog() {
+    if (!selectedTrip || isReadOnly) return;
+    setDraft(createDraftForTrip(selectedTrip));
+    setDraftError(null);
+    setEditingExpenseId(null);
+    setIsExpenseDialogOpen(true);
   }
 
   function handleSubmitExpense(event: FormEvent<HTMLFormElement>) {
@@ -447,6 +458,7 @@ export function ExpenseTrackerApp() {
     }));
     setDraftError(null);
     resetExpenseForm();
+    setIsExpenseDialogOpen(false);
     showNotice("success", editingExpenseId ? "Expense updated." : "Expense added.");
   }
 
@@ -454,6 +466,7 @@ export function ExpenseTrackerApp() {
     if (!selectedTrip || isReadOnly) return;
     setEditingExpenseId(expense.id);
     updateDraft(expenseToDraft(expense, selectedTrip.people));
+    setIsExpenseDialogOpen(true);
   }
 
   function deleteExpense(expenseId: string) {
@@ -527,9 +540,6 @@ export function ExpenseTrackerApp() {
     return (
       <main className="app-shell">
         <section className="loading-panel">
-          <span className="brand-mark" aria-hidden="true">
-            <AmbaganLogo />
-          </span>
           <strong>Loading Ambagan...</strong>
         </section>
       </main>
@@ -541,9 +551,6 @@ export function ExpenseTrackerApp() {
       <Toaster position="top-center" richColors />
       <header className="topbar">
         <Button className="brand-button" variant="ghost" type="button" onClick={() => setSharedTrip(null)}>
-          <span className="brand-mark" aria-hidden="true">
-            <AmbaganLogo />
-          </span>
           <span>
             <strong>Ambagan</strong>
             <small>Shared expenses made simple</small>
@@ -581,13 +588,11 @@ export function ExpenseTrackerApp() {
                     <Button className="ghost-button" variant="outline" type="button" onClick={() => { setIsRenamingTrip(true); setRenameValue(selectedTrip.name); }}>
                       Rename
                     </Button>
-                    <Button className="ghost-button" variant="outline" type="button" onClick={() => importInputRef.current?.click()}>
-                      Open JSON
-                    </Button>
-                    <Button className="ghost-button" variant="outline" type="button" onClick={() => handleExportTrip(selectedTrip)}>
-                      Export JSON
-                    </Button>
                     <Button type="button" onClick={handleCopyShareLink}>Copy share link</Button>
+                    <TripActions
+                      onOpenJson={() => importInputRef.current?.click()}
+                      onExportJson={() => handleExportTrip(selectedTrip)}
+                    />
                   </>
                 )}
               </div>
@@ -609,7 +614,7 @@ export function ExpenseTrackerApp() {
                 </div>
                 {!isReadOnly ? (
                   <form className="inline-form" onSubmit={handleAddPerson}>
-                    <Input value={newPersonName} onChange={(event) => setNewPersonName(event.target.value)} placeholder="Matthew" />
+                    <Input value={newPersonName} onChange={(event) => setNewPersonName(event.target.value)} aria-label="Person name" />
                     <Button type="submit">Add</Button>
                   </form>
                 ) : null}
@@ -691,38 +696,17 @@ export function ExpenseTrackerApp() {
               )}
             </section>
 
-            {!isReadOnly ? (
-              <section className="panel">
-                <div className="panel-heading">
-                  <div>
-                    <p className="eyebrow">Record</p>
-                    <h2>{editingExpenseId ? "Edit expense" : "Add ambag"}</h2>
-                  </div>
-                  {editingExpenseId ? (
-                    <Button className="ghost-button" variant="outline" type="button" onClick={resetExpenseForm}>
-                      Cancel edit
-                    </Button>
-                  ) : null}
-                </div>
-                <ExpenseForm
-                  draft={draft}
-                  error={draftError}
-                  people={selectedTrip.people}
-                  onSubmit={handleSubmitExpense}
-                  onDraftChange={updateDraft}
-                  onParticipantChange={updateParticipant}
-                  onSetAllParticipants={setAllParticipants}
-                  isEditing={Boolean(editingExpenseId)}
-                />
-              </section>
-            ) : null}
-
             <section className="panel">
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">Ledger</p>
                   <h2>Expenses</h2>
                 </div>
+                {!isReadOnly ? (
+                  <Button type="button" onClick={openAddExpenseDialog} disabled={selectedTrip.people.length === 0}>
+                    Add ambag
+                  </Button>
+                ) : null}
               </div>
               {selectedTrip.expenses.length === 0 ? (
                 <div className="empty-state">No expenses yet. Add the first ambag when someone pays.</div>
@@ -777,6 +761,21 @@ export function ExpenseTrackerApp() {
           if (!isOpen) setConfirmDialog(null);
         }}
       />
+      <ExpenseDialog
+        draft={draft}
+        error={draftError}
+        people={selectedTrip?.people ?? []}
+        isEditing={Boolean(editingExpenseId)}
+        isOpen={isExpenseDialogOpen}
+        onOpenChange={(isOpen) => {
+          setIsExpenseDialogOpen(isOpen);
+          if (!isOpen) resetExpenseForm();
+        }}
+        onSubmit={handleSubmitExpense}
+        onDraftChange={updateDraft}
+        onParticipantChange={updateParticipant}
+        onSetAllParticipants={setAllParticipants}
+      />
     </main>
   );
 }
@@ -788,6 +787,86 @@ function MetricCard({ label, value, detail }: { label: string; value: string; de
       <strong>{value}</strong>
       <small>{detail}</small>
     </div>
+  );
+}
+
+function TripActions({
+  onOpenJson,
+  onExportJson
+}: {
+  onOpenJson: () => void;
+  onExportJson: () => void;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+
+  function runAction(action: () => void) {
+    action();
+    setIsOpen(false);
+  }
+
+  return (
+    <div className="action-menu">
+      <Button className="ghost-button" variant="outline" type="button" onClick={() => setIsOpen((current) => !current)}>
+        Actions
+      </Button>
+      {isOpen ? (
+        <div className="action-menu-panel">
+          <Button className="ghost-button" variant="outline" type="button" onClick={() => runAction(onOpenJson)}>
+            Open JSON
+          </Button>
+          <Button className="ghost-button" variant="outline" type="button" onClick={() => runAction(onExportJson)}>
+            Export JSON
+          </Button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ExpenseDialog({
+  draft,
+  error,
+  people,
+  isEditing,
+  isOpen,
+  onOpenChange,
+  onSubmit,
+  onDraftChange,
+  onParticipantChange,
+  onSetAllParticipants
+}: {
+  draft: ExpenseDraft;
+  error: ExpenseDraftError | null;
+  people: Person[];
+  isEditing: boolean;
+  isOpen: boolean;
+  onOpenChange: (isOpen: boolean) => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onDraftChange: (draft: ExpenseDraft) => void;
+  onParticipantChange: (personId: string, checked: boolean) => void;
+  onSetAllParticipants: (checked: boolean) => void;
+}) {
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent className="expense-dialog">
+        <DialogHeader>
+          <DialogTitle>{isEditing ? "Edit expense" : "Add ambag"}</DialogTitle>
+          <DialogDescription>
+            {isEditing ? "Update the record details and save the expense." : "Record a payment and choose who should share it."}
+          </DialogDescription>
+        </DialogHeader>
+        <ExpenseForm
+          draft={draft}
+          error={error}
+          people={people}
+          onSubmit={onSubmit}
+          onDraftChange={onDraftChange}
+          onParticipantChange={onParticipantChange}
+          onSetAllParticipants={onSetAllParticipants}
+          isEditing={isEditing}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -823,7 +902,6 @@ function ExpenseForm({
             aria-invalid={error?.field === "description"}
             value={draft.description}
             onChange={(event) => onDraftChange({ ...draft, description: event.target.value })}
-            placeholder="Lunch, van rental, groceries"
           />
         </label>
         <label>
@@ -833,7 +911,6 @@ function ExpenseForm({
             inputMode="decimal"
             value={draft.amount}
             onChange={(event) => onDraftChange({ ...draft, amount: event.target.value })}
-            placeholder="1000.00"
           />
         </label>
         <label>
@@ -852,7 +929,7 @@ function ExpenseForm({
               if (paidByPersonId) onDraftChange({ ...draft, paidByPersonId });
             }}
           >
-            <SelectTrigger aria-invalid={error?.field === "paidByPersonId"}>
+            <SelectTrigger className="w-full" aria-invalid={error?.field === "paidByPersonId"}>
               <span>{selectedPayerName}</span>
             </SelectTrigger>
             <SelectContent>
@@ -870,7 +947,7 @@ function ExpenseForm({
               if (splitType) onDraftChange({ ...draft, splitType: splitType as SplitType });
             }}
           >
-            <SelectTrigger>
+            <SelectTrigger className="w-full">
               <span>{getSplitTypeLabel(draft.splitType)}</span>
             </SelectTrigger>
             <SelectContent>
@@ -917,7 +994,6 @@ function ExpenseForm({
                     }
                   })
                 }
-                placeholder="0.00"
               />
             </label>
           ))}
@@ -960,15 +1036,6 @@ function ConfirmDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function AmbaganLogo() {
-  return (
-    <svg className="ambagan-logo" viewBox="0 0 32 32" role="img" aria-label="Ambagan logo">
-      <path d="M16 3 29 10.5v11L16 29 3 21.5v-11L16 3Z" />
-      <path d="M16 8.5 23.5 23h-3.9l-1.1-2.5h-5.1L12.4 23H8.5L16 8.5Zm-1.3 9h2.6L16 14.3l-1.3 3.2Z" />
-    </svg>
   );
 }
 

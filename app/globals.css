@@ -174,7 +174,6 @@ small {
 .brand-button {
   display: flex;
   align-items: center;
-  gap: 10px;
   min-height: 48px;
   background: transparent;
   color: var(--text);
@@ -202,32 +201,6 @@ small {
   font-weight: 700;
 }
 
-.brand-mark {
-  display: inline-grid;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
-  place-items: center;
-  border: 1px solid rgba(25, 89, 64, 0.18);
-  border-radius: 8px;
-  background: var(--primary);
-  box-shadow: 0 8px 18px rgba(47, 125, 92, 0.24);
-  color: #fff;
-}
-
-.ambagan-logo {
-  width: 28px;
-  height: 28px;
-}
-
-.ambagan-logo path:first-child {
-  fill: #ffffff;
-}
-
-.ambagan-logo path:last-child {
-  fill: var(--primary);
-}
-
 .header-actions,
 .compact-actions,
 .inline-form {
@@ -242,6 +215,31 @@ small {
 
 .file-input {
   display: none;
+}
+
+.action-menu {
+  position: relative;
+  z-index: 30;
+}
+
+.action-menu-panel {
+  position: absolute;
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 160px;
+  gap: 8px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+  padding: 8px;
+}
+
+.action-menu-panel button {
+  justify-content: flex-start;
+  width: 100%;
 }
 
 .ghost-button {
@@ -310,11 +308,13 @@ small {
 }
 
 .trip-header {
+  position: relative;
+  z-index: 10;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 18px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(25, 89, 64, 0.16);
   border-radius: 8px;
   background: var(--surface);
@@ -526,6 +526,12 @@ small {
   gap: 16px;
 }
 
+.expense-dialog {
+  max-width: min(920px, calc(100% - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow-y: auto;
+}
+
 .form-grid,
 .participant-grid,
 .exact-grid {
@@ -649,6 +655,16 @@ small {
 
   .brand-button small {
     display: none;
+  }
+
+  .action-menu,
+  .action-menu > button,
+  .action-menu-panel {
+    width: 100%;
+  }
+
+  .action-menu-panel {
+    position: static;
   }
 
   .inline-form {
