@@ -3,8 +3,8 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Simple Expense Tracker",
-  description: "A no-login trip expense tracker for shared balances."
+  title: "Ambagan",
+  description: "A no-login shared expense tracker for trips, meals, and group balances."
 };
 
 export default function RootLayout({

@@ -201,6 +201,13 @@ export function ExpenseTrackerApp() {
   const settlements = useMemo(() => calculateSettlements(balances), [balances]);
   const settlementReceipts = useMemo(() => calculateSettlementReceipts(settlements), [settlements]);
   const tripTotal = selectedTrip ? getTripTotalMinor(selectedTrip) : 0;
+  const tripMetrics = selectedTrip
+    ? [
+        { label: "People", value: selectedTrip.people.length.toString(), detail: "Included in this ambagan" },
+        { label: "Expenses", value: selectedTrip.expenses.length.toString(), detail: "Tracked payments" },
+        { label: "Total", value: formatMoney(tripTotal), detail: "Group spend so far" }
+      ]
+    : [];
 
   function showNotice(tone: AppNotice["tone"], message: string) {
     setNotice({ tone, message });
@@ -472,7 +479,10 @@ export function ExpenseTrackerApp() {
   if (!isReady) {
     return (
       <main className="app-shell">
-        <section className="loading-panel">Loading your trips...</section>
+        <section className="loading-panel">
+          <span className="brand-mark" aria-hidden="true">A</span>
+          <strong>Loading Ambagan...</strong>
+        </section>
       </main>
     );
   }
@@ -481,12 +491,16 @@ export function ExpenseTrackerApp() {
     <main className="app-shell">
       <header className="topbar">
         <button className="brand-button" type="button" onClick={() => setSharedTrip(null)}>
-          Peso Split
+          <span className="brand-mark" aria-hidden="true">A</span>
+          <span>
+            <strong>Ambagan</strong>
+            <small>Shared expenses made simple</small>
+          </span>
         </button>
         <div className="topbar-actions">
           <input ref={importInputRef} className="file-input" type="file" accept="application/json" onChange={handleImportTrip} />
           <button className="ghost-button" type="button" onClick={() => importInputRef.current?.click()}>
-            Import JSON
+            Import trip
           </button>
         </div>
       </header>
@@ -495,6 +509,10 @@ export function ExpenseTrackerApp() {
 
       <div className="workspace">
         <aside className="sidebar">
+          <div className="sidebar-heading">
+            <p className="eyebrow">Trips</p>
+            <h2>Your ambagans</h2>
+          </div>
           <form className="stack" onSubmit={handleCreateTrip}>
             <label htmlFor="new-trip">New trip</label>
             <div className="inline-form">
@@ -510,7 +528,7 @@ export function ExpenseTrackerApp() {
 
           <div className="trip-list" aria-label="Saved trips">
             {trips.length === 0 ? (
-              <div className="empty-state">No saved trips yet. Create one to start tracking balances.</div>
+              <div className="empty-state">No trips yet. Create one to start tracking balances.</div>
             ) : (
               trips.map((trip) => (
                 <article className={`trip-item ${selectedTrip?.id === trip.id && !isReadOnly ? "active" : ""}`} key={trip.id}>
@@ -528,7 +546,7 @@ export function ExpenseTrackerApp() {
                     <>
                       <button className="trip-select" type="button" onClick={() => { setSelectedTripId(trip.id); setSharedTrip(null); }}>
                         <span>{trip.name}</span>
-                        <small>{trip.people.length} people · {trip.expenses.length} expenses</small>
+                        <small>{trip.people.length} people | {trip.expenses.length} expenses | {formatMoney(getTripTotalMinor(trip))}</small>
                       </button>
                       <div className="compact-actions">
                         <button className="ghost-button" type="button" onClick={() => { setRenamingTripId(trip.id); setRenameValue(trip.name); }}>
@@ -556,9 +574,9 @@ export function ExpenseTrackerApp() {
           <section className="trip-panel">
             <div className="trip-header">
               <div>
-                <p className="eyebrow">{isReadOnly ? "Shared read-only snapshot" : "Local trip"}</p>
+                <p className="eyebrow">{isReadOnly ? "Shared read-only snapshot" : "Local ambagan"}</p>
                 <h1>{selectedTrip.name}</h1>
-                <p>{formatMoney(tripTotal)} total tracked</p>
+                <p>{formatMoney(tripTotal)} tracked across {selectedTrip.expenses.length} expenses.</p>
               </div>
               <div className="header-actions">
                 {isReadOnly ? (
@@ -575,24 +593,18 @@ export function ExpenseTrackerApp() {
             </div>
 
             <section className="metrics-grid">
-              <div className="metric">
-                <span>People</span>
-                <strong>{selectedTrip.people.length}</strong>
-              </div>
-              <div className="metric">
-                <span>Expenses</span>
-                <strong>{selectedTrip.expenses.length}</strong>
-              </div>
-              <div className="metric">
-                <span>Total</span>
-                <strong>{formatMoney(tripTotal)}</strong>
-              </div>
+              {tripMetrics.map((metric) => (
+                <MetricCard key={metric.label} {...metric} />
+              ))}
             </section>
 
             <section className="two-column">
               <div className="panel">
                 <div className="panel-heading">
-                  <h2>People</h2>
+                  <div>
+                    <p className="eyebrow">Group</p>
+                    <h2>People</h2>
+                  </div>
                 </div>
                 {!isReadOnly ? (
                   <form className="inline-form" onSubmit={handleAddPerson}>
@@ -623,7 +635,10 @@ export function ExpenseTrackerApp() {
 
               <div className="panel">
                 <div className="panel-heading">
-                  <h2>Settlements</h2>
+                  <div>
+                    <p className="eyebrow">Settle up</p>
+                    <h2>Settlements</h2>
+                  </div>
                 </div>
                 {settlements.length === 0 ? (
                   <div className="empty-state">No one owes anything yet.</div>
@@ -648,30 +663,40 @@ export function ExpenseTrackerApp() {
 
             <section className="panel">
               <div className="panel-heading">
-                <h2>Balances</h2>
-              </div>
-              <div className="balance-table">
-                <div className="table-row table-head">
-                  <span>Person</span>
-                  <span>Paid</span>
-                  <span>Share</span>
-                  <span>Balance</span>
+                <div>
+                  <p className="eyebrow">Running totals</p>
+                  <h2>Balances</h2>
                 </div>
-                {balances.map((balance) => (
-                  <div className="table-row" key={balance.personId}>
-                    <span>{getPersonName(selectedTrip, balance.personId)}</span>
-                    <span>{formatMoney(balance.paidMinor)}</span>
-                    <span>{formatMoney(balance.shareMinor)}</span>
-                    <span className={balance.balanceMinor >= 0 ? "positive" : "negative"}>{formatMoney(balance.balanceMinor)}</span>
-                  </div>
-                ))}
               </div>
+              {balances.length === 0 ? (
+                <div className="empty-state">Balances will appear once people are added.</div>
+              ) : (
+                <div className="balance-table">
+                  <div className="table-row table-head">
+                    <span>Person</span>
+                    <span>Paid</span>
+                    <span>Share</span>
+                    <span>Balance</span>
+                  </div>
+                  {balances.map((balance) => (
+                    <div className="table-row" key={balance.personId}>
+                      <span>{getPersonName(selectedTrip, balance.personId)}</span>
+                      <span>{formatMoney(balance.paidMinor)}</span>
+                      <span>{formatMoney(balance.shareMinor)}</span>
+                      <span className={balance.balanceMinor >= 0 ? "positive" : "negative"}>{formatMoney(balance.balanceMinor)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </section>
 
             {!isReadOnly ? (
               <section className="panel">
                 <div className="panel-heading">
-                  <h2>{editingExpenseId ? "Edit expense" : "Add expense"}</h2>
+                  <div>
+                    <p className="eyebrow">Record</p>
+                    <h2>{editingExpenseId ? "Edit expense" : "Add ambag"}</h2>
+                  </div>
                   {editingExpenseId ? (
                     <button className="ghost-button" type="button" onClick={resetExpenseForm}>
                       Cancel edit
@@ -692,10 +717,13 @@ export function ExpenseTrackerApp() {
 
             <section className="panel">
               <div className="panel-heading">
-                <h2>Expenses</h2>
+                <div>
+                  <p className="eyebrow">Ledger</p>
+                  <h2>Expenses</h2>
+                </div>
               </div>
               {selectedTrip.expenses.length === 0 ? (
-                <div className="empty-state">No expenses yet.</div>
+                <div className="empty-state">No expenses yet. Add the first ambag when someone pays.</div>
               ) : (
                 <div className="expense-list">
                   {selectedTrip.expenses.map((expense) => (
@@ -734,12 +762,23 @@ export function ExpenseTrackerApp() {
           </section>
         ) : (
           <section className="trip-panel empty-hero">
-            <h1>Track trip expenses without accounts.</h1>
-            <p>Create a trip, add people, record expenses, and copy a read-only link when friends need to see the balances.</p>
+            <p className="eyebrow">Ambagan</p>
+            <h1>Track shared expenses without accounts.</h1>
+            <p>Create a trip, add people, record payments, and copy a read-only link when friends need to see the balances.</p>
           </section>
         )}
       </div>
     </main>
+  );
+}
+
+function MetricCard({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </div>
   );
 }
 
@@ -852,8 +891,8 @@ function ExpenseForm({
         </div>
       ) : null}
 
-      <button type="submit" disabled={people.length === 0}>
-        {isEditing ? "Save expense" : "Add expense"}
+      <button className="submit-button" type="submit" disabled={people.length === 0}>
+        {isEditing ? "Save expense" : "Add ambag"}
       </button>
     </form>
   );
