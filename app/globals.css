@@ -228,7 +228,6 @@ small {
   fill: var(--primary);
 }
 
-.topbar-actions,
 .header-actions,
 .compact-actions,
 .inline-form {
@@ -271,14 +270,13 @@ small {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 18px;
   max-width: 1440px;
   margin: 0 auto;
   align-items: start;
 }
 
-.sidebar,
 .panel,
 .loading-panel {
   border: 1px solid rgba(217, 222, 210, 0.92);
@@ -287,31 +285,11 @@ small {
   box-shadow: var(--shadow-soft);
 }
 
-.sidebar {
-  display: grid;
-  gap: 18px;
-  min-width: 0;
-  padding: 16px;
-  position: sticky;
-  top: 24px;
-}
-
-.sidebar .inline-form {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.sidebar-heading {
-  display: grid;
-  gap: 4px;
-}
-
 .stack {
   display: grid;
   gap: 10px;
 }
 
-.trip-list,
 .expense-list,
 .person-list,
 .settlement-list {
@@ -319,52 +297,6 @@ small {
   gap: 10px;
 }
 
-.trip-item {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  padding: 12px;
-}
-
-.trip-item .compact-actions button {
-  flex: 1 1 92px;
-}
-
-.trip-item.active {
-  border-color: var(--primary);
-  background: var(--primary-soft);
-  box-shadow: inset 3px 0 0 var(--primary);
-}
-
-.trip-select {
-  display: grid;
-  height: auto;
-  min-height: 0;
-  gap: 5px;
-  width: 100%;
-  background: transparent;
-  color: var(--text);
-  text-align: left;
-  padding: 0;
-}
-
-.trip-select:hover:not(:disabled) {
-  background: transparent;
-  color: var(--primary-dark);
-  transform: none;
-}
-
-.trip-select span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.trip-select small,
 .trip-header p,
 .expense-item p,
 .eyebrow {
@@ -392,6 +324,16 @@ small {
 
 .trip-header > div:first-child {
   display: grid;
+  gap: 10px;
+}
+
+.trip-title-block {
+  min-width: 0;
+}
+
+.rename-form {
+  display: grid;
+  max-width: 620px;
   gap: 10px;
 }
 
@@ -685,10 +627,6 @@ small {
     grid-template-columns: 1fr;
   }
 
-  .sidebar {
-    position: static;
-  }
-
   .trip-header {
     align-items: flex-start;
     flex-direction: column;
@@ -713,8 +651,7 @@ small {
     display: none;
   }
 
-  .inline-form,
-  .sidebar .inline-form {
+  .inline-form {
     display: grid;
     grid-template-columns: 1fr;
   }

@@ -22,7 +22,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { calculatePersonBalances, calculateSettlementReceipts, calculateSettlements, getTripTotalMinor } from "@/lib/calculations";
 import { createShareUrl, decodeTripFromHash } from "@/lib/share";
-import { loadTripsFromStorage, saveTripsToStorage } from "@/lib/storage";
+import { loadTripFromStorage, saveTripToStorage } from "@/lib/storage";
 import { formatMoney, minorToPesoInput, pesoToMinor, splitEvenly } from "@/lib/money";
 import type { Expense, ExpenseShare, Person, SplitType, Trip } from "@/types";
 import { toast } from "sonner";
@@ -186,14 +186,22 @@ function getSplitTypeLabel(splitType: SplitType) {
   return splitType === "equal" ? "Split equally" : "Enter exact amounts";
 }
 
+function createDraftForTrip(trip: Trip): ExpenseDraft {
+  return {
+    ...emptyDraft,
+    date: getTodayInputDate(),
+    paidByPersonId: trip.people[0]?.id ?? "",
+    participantIds: trip.people.map((person) => person.id),
+    exactShares: Object.fromEntries(trip.people.map((person) => [person.id, ""]))
+  };
+}
+
 export function ExpenseTrackerApp() {
   const [isReady, setIsReady] = useState(false);
-  const [trips, setTrips] = useState<Trip[]>([]);
-  const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
+  const [trip, setTrip] = useState<Trip | null>(null);
   const [sharedTrip, setSharedTrip] = useState<Trip | null>(null);
-  const [newTripName, setNewTripName] = useState("");
   const [newPersonName, setNewPersonName] = useState("");
-  const [renamingTripId, setRenamingTripId] = useState<string | null>(null);
+  const [isRenamingTrip, setIsRenamingTrip] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [draft, setDraft] = useState<ExpenseDraft>(emptyDraft);
   const [draftError, setDraftError] = useState<ExpenseDraftError | null>(null);
@@ -201,27 +209,23 @@ export function ExpenseTrackerApp() {
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
-  const selectedTrip = useMemo(() => {
-    if (sharedTrip) return sharedTrip;
-    return trips.find((trip) => trip.id === selectedTripId) ?? null;
-  }, [selectedTripId, sharedTrip, trips]);
+  const selectedTrip = sharedTrip ?? trip;
 
   const isReadOnly = Boolean(sharedTrip);
 
   useEffect(() => {
-    const loadedTrips = loadTripsFromStorage();
+    const loadedTrip = loadTripFromStorage();
     const loadedSharedTrip = decodeTripFromHash(window.location.hash);
 
-    setTrips(loadedTrips);
+    setTrip(loadedTrip ?? createTrip("Untitled ambagan"));
     setSharedTrip(loadedSharedTrip);
-    setSelectedTripId(loadedSharedTrip ? loadedSharedTrip.id : loadedTrips[0]?.id ?? null);
     setIsReady(true);
   }, []);
 
   useEffect(() => {
-    if (!isReady) return;
-    saveTripsToStorage(trips);
-  }, [isReady, trips]);
+    if (!isReady || !trip) return;
+    saveTripToStorage(trip);
+  }, [isReady, trip]);
 
   useEffect(() => {
     if (!selectedTrip || selectedTrip.people.length === 0 || editingExpenseId) return;
@@ -270,76 +274,24 @@ export function ExpenseTrackerApp() {
     setConfirmDialog(null);
   }
 
-  function updateTrip(tripId: string, updater: (trip: Trip) => Trip) {
-    setTrips((currentTrips) => currentTrips.map((trip) => (trip.id === tripId ? touchTrip(updater(trip)) : trip)));
-  }
-
-  function handleCreateTrip(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const name = newTripName.trim();
-    if (!name) {
-      showNotice("error", "Add a trip name first.");
-      return;
-    }
-
-    const trip = createTrip(name);
-    setTrips((currentTrips) => [trip, ...currentTrips]);
-    setSelectedTripId(trip.id);
-    setSharedTrip(null);
-    setNewTripName("");
-    showNotice("success", "Trip created.");
+  function updateTrip(updater: (trip: Trip) => Trip) {
+    setTrip((currentTrip) => (currentTrip ? touchTrip(updater(currentTrip)) : currentTrip));
   }
 
   function handleRenameTrip(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!renamingTripId) return;
+    if (!trip) return;
 
     const name = renameValue.trim();
     if (!name) {
-      showNotice("error", "Trip name cannot be empty.");
+      showNotice("error", "Ambagan name cannot be empty.");
       return;
     }
 
-    updateTrip(renamingTripId, (trip) => ({ ...trip, name }));
-    setRenamingTripId(null);
+    updateTrip((currentTrip) => ({ ...currentTrip, name }));
+    setIsRenamingTrip(false);
     setRenameValue("");
-    showNotice("success", "Trip renamed.");
-  }
-
-  function deleteTrip(tripId: string) {
-    setTrips((currentTrips) => {
-      const nextTrips = currentTrips.filter((trip) => trip.id !== tripId);
-      if (selectedTripId === tripId) setSelectedTripId(nextTrips[0]?.id ?? null);
-      return nextTrips;
-    });
-    showNotice("success", "Trip deleted.");
-  }
-
-  function handleDeleteTrip(trip: Trip) {
-    askConfirm({
-      title: `Delete ${trip.name}?`,
-      description: "This removes the trip, its people, expenses, balances, and settlements from this browser.",
-      confirmLabel: "Delete trip",
-      tone: "danger",
-      onConfirm: () => deleteTrip(trip.id)
-    });
-  }
-
-  function handleDuplicateTrip(trip: Trip) {
-    const now = new Date().toISOString();
-    const duplicate = {
-      ...trip,
-      id: createId("trip"),
-      name: `${trip.name} copy`,
-      createdAt: now,
-      updatedAt: now
-    };
-
-    setTrips((currentTrips) => [duplicate, ...currentTrips]);
-    setSelectedTripId(duplicate.id);
-    setSharedTrip(null);
-    showNotice("success", "Trip duplicated.");
+    showNotice("success", "Ambagan renamed.");
   }
 
   function handleExportTrip(trip: Trip) {
@@ -372,12 +324,16 @@ export function ExpenseTrackerApp() {
         updatedAt: now
       };
 
-      setTrips((currentTrips) => [importedTrip, ...currentTrips]);
-      setSelectedTripId(importedTrip.id);
+      setTrip(importedTrip);
       setSharedTrip(null);
-      showNotice("success", "Trip imported.");
+      setIsRenamingTrip(false);
+      setDraft(createDraftForTrip(importedTrip));
+      setDraftError(null);
+      setEditingExpenseId(null);
+      window.history.replaceState(null, "", window.location.pathname);
+      showNotice("success", "JSON opened.");
     } catch {
-      showNotice("error", "That file does not look like a valid trip export.");
+      showNotice("error", "That file does not look like a valid Ambagan export.");
     } finally {
       event.target.value = "";
     }
@@ -398,9 +354,9 @@ export function ExpenseTrackerApp() {
       name
     };
 
-    updateTrip(selectedTrip.id, (trip) => ({
-      ...trip,
-      people: [...trip.people, person]
+    updateTrip((currentTrip) => ({
+      ...currentTrip,
+      people: [...currentTrip.people, person]
     }));
     setDraft((current) => {
       if (editingExpenseId) return current;
@@ -436,7 +392,7 @@ export function ExpenseTrackerApp() {
       confirmLabel: "Remove person",
       tone: "danger",
       onConfirm: () => {
-        updateTrip(selectedTrip.id, (trip) => ({
+        updateTrip((trip) => ({
           ...trip,
           people: trip.people.filter((person) => person.id !== personId)
         }));
@@ -451,13 +407,7 @@ export function ExpenseTrackerApp() {
       return;
     }
 
-    setDraft({
-      ...emptyDraft,
-      date: getTodayInputDate(),
-      paidByPersonId: selectedTrip.people[0]?.id ?? "",
-      participantIds: selectedTrip.people.map((person) => person.id),
-      exactShares: Object.fromEntries(selectedTrip.people.map((person) => [person.id, ""]))
-    });
+    setDraft(createDraftForTrip(selectedTrip));
     setDraftError(null);
     setEditingExpenseId(null);
   }
@@ -489,7 +439,7 @@ export function ExpenseTrackerApp() {
         : now
     };
 
-    updateTrip(selectedTrip.id, (trip) => ({
+    updateTrip((trip) => ({
       ...trip,
       expenses: editingExpenseId
         ? trip.expenses.map((item) => (item.id === editingExpenseId ? expense : item))
@@ -509,7 +459,7 @@ export function ExpenseTrackerApp() {
   function deleteExpense(expenseId: string) {
     if (!selectedTrip || isReadOnly) return;
 
-    updateTrip(selectedTrip.id, (trip) => ({
+    updateTrip((trip) => ({
       ...trip,
       expenses: trip.expenses.filter((expense) => expense.id !== expenseId)
     }));
@@ -539,8 +489,15 @@ export function ExpenseTrackerApp() {
 
   function handleSaveSharedTrip() {
     if (!sharedTrip) return;
-    handleDuplicateTrip(sharedTrip);
+    const editableTrip = touchTrip({ ...sharedTrip, id: createId("trip") });
+    setTrip(editableTrip);
+    setSharedTrip(null);
+    setIsRenamingTrip(false);
+    setDraft(createDraftForTrip(editableTrip));
+    setDraftError(null);
+    setEditingExpenseId(null);
     window.history.replaceState(null, "", window.location.pathname);
+    showNotice("success", "Editable copy saved.");
   }
 
   function updateParticipant(personId: string, checked: boolean) {
@@ -592,90 +549,41 @@ export function ExpenseTrackerApp() {
             <small>Shared expenses made simple</small>
           </span>
         </Button>
-        <div className="topbar-actions">
-          <input ref={importInputRef} className="file-input" type="file" accept="application/json" onChange={handleImportTrip} />
-          <Button className="ghost-button" variant="outline" type="button" onClick={() => importInputRef.current?.click()}>
-            Import trip
-          </Button>
-        </div>
       </header>
+      <input ref={importInputRef} className="file-input" type="file" accept="application/json" onChange={handleImportTrip} />
 
       <div className="workspace">
-        <aside className="sidebar">
-          <div className="sidebar-heading">
-            <p className="eyebrow">Trips</p>
-            <h2>Your ambagans</h2>
-          </div>
-          <form className="stack" onSubmit={handleCreateTrip}>
-            <label htmlFor="new-trip">New trip</label>
-            <div className="inline-form">
-              <Input
-                id="new-trip"
-                value={newTripName}
-                onChange={(event) => setNewTripName(event.target.value)}
-                placeholder="Dahilayan weekend"
-              />
-              <Button type="submit">Create</Button>
-            </div>
-          </form>
-
-          <div className="trip-list" aria-label="Saved trips">
-            {trips.length === 0 ? (
-              <div className="empty-state">No trips yet. Create one to start tracking balances.</div>
-            ) : (
-              trips.map((trip) => (
-                <article className={`trip-item ${selectedTrip?.id === trip.id && !isReadOnly ? "active" : ""}`} key={trip.id}>
-                  {renamingTripId === trip.id ? (
-                    <form className="stack" onSubmit={handleRenameTrip}>
-                      <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus />
-                      <div className="compact-actions">
-                        <Button type="submit">Save</Button>
-                        <Button className="ghost-button" variant="outline" type="button" onClick={() => setRenamingTripId(null)}>
-                          Cancel
-                        </Button>
-                      </div>
-                    </form>
-                  ) : (
-                    <>
-                      <Button className="trip-select" variant="ghost" type="button" onClick={() => { setSelectedTripId(trip.id); setSharedTrip(null); }}>
-                        <span>{trip.name}</span>
-                        <small>{trip.people.length} people | {trip.expenses.length} expenses | {formatMoney(getTripTotalMinor(trip))}</small>
-                      </Button>
-                      <div className="compact-actions">
-                        <Button className="ghost-button" variant="outline" type="button" onClick={() => { setRenamingTripId(trip.id); setRenameValue(trip.name); }}>
-                          Rename
-                        </Button>
-                        <Button className="ghost-button" variant="outline" type="button" onClick={() => handleDuplicateTrip(trip)}>
-                          Duplicate
-                        </Button>
-                        <Button className="ghost-button" variant="outline" type="button" onClick={() => handleExportTrip(trip)}>
-                          Export
-                        </Button>
-                        <Button className="danger-button" variant="destructive" type="button" onClick={() => handleDeleteTrip(trip)}>
-                          Delete
-                        </Button>
-                      </div>
-                    </>
-                  )}
-                </article>
-              ))
-            )}
-          </div>
-        </aside>
-
         {selectedTrip ? (
           <section className="trip-panel">
             <div className="trip-header">
-              <div>
-                <p className="eyebrow">{isReadOnly ? "Shared read-only snapshot" : "Local ambagan"}</p>
-                <h1>{selectedTrip.name}</h1>
+              <div className="trip-title-block">
+                <p className="eyebrow">{isReadOnly ? "Shared read-only snapshot" : "Current ambagan"}</p>
+                {isRenamingTrip && !isReadOnly ? (
+                  <form className="rename-form" onSubmit={handleRenameTrip}>
+                    <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus />
+                    <div className="compact-actions">
+                      <Button type="submit">Save</Button>
+                      <Button className="ghost-button" variant="outline" type="button" onClick={() => setIsRenamingTrip(false)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                ) : (
+                  <h1>{selectedTrip.name}</h1>
+                )}
                 <p>{formatMoney(tripTotal)} tracked across {selectedTrip.expenses.length} expenses.</p>
               </div>
               <div className="header-actions">
                 {isReadOnly ? (
-                  <Button type="button" onClick={handleSaveSharedTrip}>Duplicate to my trips</Button>
+                  <Button type="button" onClick={handleSaveSharedTrip}>Save editable copy</Button>
                 ) : (
                   <>
+                    <Button className="ghost-button" variant="outline" type="button" onClick={() => { setIsRenamingTrip(true); setRenameValue(selectedTrip.name); }}>
+                      Rename
+                    </Button>
+                    <Button className="ghost-button" variant="outline" type="button" onClick={() => importInputRef.current?.click()}>
+                      Open JSON
+                    </Button>
                     <Button className="ghost-button" variant="outline" type="button" onClick={() => handleExportTrip(selectedTrip)}>
                       Export JSON
                     </Button>
