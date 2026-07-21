@@ -1,16 +1,31 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger
+} from "@/components/ui/select";
+import { Toaster } from "@/components/ui/sonner";
 import { calculatePersonBalances, calculateSettlementReceipts, calculateSettlements, getTripTotalMinor } from "@/lib/calculations";
 import { createShareUrl, decodeTripFromHash } from "@/lib/share";
 import { loadTripsFromStorage, saveTripsToStorage } from "@/lib/storage";
 import { formatMoney, minorToPesoInput, pesoToMinor, splitEvenly } from "@/lib/money";
 import type { Expense, ExpenseShare, Person, SplitType, Trip } from "@/types";
-
-type AppNotice = {
-  tone: "success" | "error";
-  message: string;
-};
+import { toast } from "sonner";
 
 type ExpenseDraft = {
   description: string;
@@ -20,6 +35,19 @@ type ExpenseDraft = {
   splitType: SplitType;
   participantIds: string[];
   exactShares: Record<string, string>;
+};
+
+type ExpenseDraftError = {
+  field: "description" | "amount" | "paidByPersonId" | "participantIds" | "exactShares";
+  message: string;
+};
+
+type ConfirmDialogState = {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  tone?: "danger" | "default";
+  onConfirm: () => void;
 };
 
 const emptyDraft: ExpenseDraft = {
@@ -127,27 +155,35 @@ function buildShares(draft: ExpenseDraft, amountMinor: number): ExpenseShare[] {
   }));
 }
 
-function validateExpenseDraft(draft: ExpenseDraft) {
+function validateExpenseDraft(draft: ExpenseDraft): ExpenseDraftError | null {
   const amountMinor = pesoToMinor(draft.amount);
 
-  if (!draft.description.trim()) return "Add a description.";
-  if (!Number.isFinite(amountMinor) || amountMinor <= 0) return "Enter a valid amount greater than zero.";
-  if (!draft.paidByPersonId) return "Choose who paid.";
-  if (draft.participantIds.length === 0) return "Choose at least one person involved.";
+  if (!draft.description.trim()) return { field: "description", message: "Add a description." };
+  if (!Number.isFinite(amountMinor) || amountMinor <= 0) {
+    return { field: "amount", message: "Enter a valid amount greater than zero." };
+  }
+  if (!draft.paidByPersonId) return { field: "paidByPersonId", message: "Choose who paid." };
+  if (draft.participantIds.length === 0) {
+    return { field: "participantIds", message: "Choose at least one person involved." };
+  }
 
   if (draft.splitType === "exact") {
     const shares = buildShares(draft, amountMinor);
     if (shares.some((share) => !Number.isFinite(share.amountMinor) || share.amountMinor < 0)) {
-      return "Exact shares must be valid amounts.";
+      return { field: "exactShares", message: "Exact shares must be valid amounts." };
     }
 
     const totalShares = shares.reduce((total, share) => total + share.amountMinor, 0);
     if (totalShares !== amountMinor) {
-      return `Exact shares must add up to ${formatMoney(amountMinor)}.`;
+      return { field: "exactShares", message: `Exact shares must add up to ${formatMoney(amountMinor)}.` };
     }
   }
 
   return null;
+}
+
+function getSplitTypeLabel(splitType: SplitType) {
+  return splitType === "equal" ? "Split equally" : "Enter exact amounts";
 }
 
 export function ExpenseTrackerApp() {
@@ -155,13 +191,14 @@ export function ExpenseTrackerApp() {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [selectedTripId, setSelectedTripId] = useState<string | null>(null);
   const [sharedTrip, setSharedTrip] = useState<Trip | null>(null);
-  const [notice, setNotice] = useState<AppNotice | null>(null);
   const [newTripName, setNewTripName] = useState("");
   const [newPersonName, setNewPersonName] = useState("");
   const [renamingTripId, setRenamingTripId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [draft, setDraft] = useState<ExpenseDraft>(emptyDraft);
+  const [draftError, setDraftError] = useState<ExpenseDraftError | null>(null);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedTrip = useMemo(() => {
@@ -209,8 +246,28 @@ export function ExpenseTrackerApp() {
       ]
     : [];
 
-  function showNotice(tone: AppNotice["tone"], message: string) {
-    setNotice({ tone, message });
+  function showNotice(tone: "success" | "error", message: string) {
+    if (tone === "success") {
+      toast.success(message);
+      return;
+    }
+
+    toast.error(message);
+  }
+
+  function updateDraft(nextDraft: ExpenseDraft) {
+    setDraft(nextDraft);
+    if (draftError) setDraftError(null);
+  }
+
+  function askConfirm(nextConfirmDialog: ConfirmDialogState) {
+    setConfirmDialog(nextConfirmDialog);
+  }
+
+  function confirmCurrentDialog() {
+    if (!confirmDialog) return;
+    confirmDialog.onConfirm();
+    setConfirmDialog(null);
   }
 
   function updateTrip(tripId: string, updater: (trip: Trip) => Trip) {
@@ -250,13 +307,23 @@ export function ExpenseTrackerApp() {
     showNotice("success", "Trip renamed.");
   }
 
-  function handleDeleteTrip(tripId: string) {
+  function deleteTrip(tripId: string) {
     setTrips((currentTrips) => {
       const nextTrips = currentTrips.filter((trip) => trip.id !== tripId);
       if (selectedTripId === tripId) setSelectedTripId(nextTrips[0]?.id ?? null);
       return nextTrips;
     });
     showNotice("success", "Trip deleted.");
+  }
+
+  function handleDeleteTrip(trip: Trip) {
+    askConfirm({
+      title: `Delete ${trip.name}?`,
+      description: "This removes the trip, its people, expenses, balances, and settlements from this browser.",
+      confirmLabel: "Delete trip",
+      tone: "danger",
+      onConfirm: () => deleteTrip(trip.id)
+    });
   }
 
   function handleDuplicateTrip(trip: Trip) {
@@ -353,6 +420,7 @@ export function ExpenseTrackerApp() {
 
   function handleRemovePerson(personId: string) {
     if (!selectedTrip || isReadOnly) return;
+    const personName = getPersonName(selectedTrip, personId);
 
     const isUsed = selectedTrip.expenses.some(
       (expense) => expense.paidByPersonId === personId || expense.shares.some((share) => share.personId === personId)
@@ -362,10 +430,19 @@ export function ExpenseTrackerApp() {
       return;
     }
 
-    updateTrip(selectedTrip.id, (trip) => ({
-      ...trip,
-      people: trip.people.filter((person) => person.id !== personId)
-    }));
+    askConfirm({
+      title: `Remove ${personName}?`,
+      description: "This person is not used in any expenses yet, so removing them will only update the group list.",
+      confirmLabel: "Remove person",
+      tone: "danger",
+      onConfirm: () => {
+        updateTrip(selectedTrip.id, (trip) => ({
+          ...trip,
+          people: trip.people.filter((person) => person.id !== personId)
+        }));
+        showNotice("success", "Person removed.");
+      }
+    });
   }
 
   function resetExpenseForm() {
@@ -381,6 +458,7 @@ export function ExpenseTrackerApp() {
       participantIds: selectedTrip.people.map((person) => person.id),
       exactShares: Object.fromEntries(selectedTrip.people.map((person) => [person.id, ""]))
     });
+    setDraftError(null);
     setEditingExpenseId(null);
   }
 
@@ -390,7 +468,8 @@ export function ExpenseTrackerApp() {
 
     const error = validateExpenseDraft(draft);
     if (error) {
-      showNotice("error", error);
+      setDraftError(error);
+      showNotice("error", error.message);
       return;
     }
 
@@ -416,6 +495,7 @@ export function ExpenseTrackerApp() {
         ? trip.expenses.map((item) => (item.id === editingExpenseId ? expense : item))
         : [expense, ...trip.expenses]
     }));
+    setDraftError(null);
     resetExpenseForm();
     showNotice("success", editingExpenseId ? "Expense updated." : "Expense added.");
   }
@@ -423,10 +503,10 @@ export function ExpenseTrackerApp() {
   function handleEditExpense(expense: Expense) {
     if (!selectedTrip || isReadOnly) return;
     setEditingExpenseId(expense.id);
-    setDraft(expenseToDraft(expense, selectedTrip.people));
+    updateDraft(expenseToDraft(expense, selectedTrip.people));
   }
 
-  function handleDeleteExpense(expenseId: string) {
+  function deleteExpense(expenseId: string) {
     if (!selectedTrip || isReadOnly) return;
 
     updateTrip(selectedTrip.id, (trip) => ({
@@ -434,6 +514,16 @@ export function ExpenseTrackerApp() {
       expenses: trip.expenses.filter((expense) => expense.id !== expenseId)
     }));
     showNotice("success", "Expense deleted.");
+  }
+
+  function handleDeleteExpense(expense: Expense) {
+    askConfirm({
+      title: `Delete ${expense.description}?`,
+      description: "This removes the expense and recalculates every balance and settlement for the trip.",
+      confirmLabel: "Delete expense",
+      tone: "danger",
+      onConfirm: () => deleteExpense(expense.id)
+    });
   }
 
   async function handleCopyShareLink() {
@@ -480,7 +570,9 @@ export function ExpenseTrackerApp() {
     return (
       <main className="app-shell">
         <section className="loading-panel">
-          <span className="brand-mark" aria-hidden="true">A</span>
+          <span className="brand-mark" aria-hidden="true">
+            <AmbaganLogo />
+          </span>
           <strong>Loading Ambagan...</strong>
         </section>
       </main>
@@ -489,23 +581,24 @@ export function ExpenseTrackerApp() {
 
   return (
     <main className="app-shell">
+      <Toaster position="top-center" richColors />
       <header className="topbar">
-        <button className="brand-button" type="button" onClick={() => setSharedTrip(null)}>
-          <span className="brand-mark" aria-hidden="true">A</span>
+        <Button className="brand-button" variant="ghost" type="button" onClick={() => setSharedTrip(null)}>
+          <span className="brand-mark" aria-hidden="true">
+            <AmbaganLogo />
+          </span>
           <span>
             <strong>Ambagan</strong>
             <small>Shared expenses made simple</small>
           </span>
-        </button>
+        </Button>
         <div className="topbar-actions">
           <input ref={importInputRef} className="file-input" type="file" accept="application/json" onChange={handleImportTrip} />
-          <button className="ghost-button" type="button" onClick={() => importInputRef.current?.click()}>
+          <Button className="ghost-button" variant="outline" type="button" onClick={() => importInputRef.current?.click()}>
             Import trip
-          </button>
+          </Button>
         </div>
       </header>
-
-      {notice ? <div className={`notice ${notice.tone}`}>{notice.message}</div> : null}
 
       <div className="workspace">
         <aside className="sidebar">
@@ -516,13 +609,13 @@ export function ExpenseTrackerApp() {
           <form className="stack" onSubmit={handleCreateTrip}>
             <label htmlFor="new-trip">New trip</label>
             <div className="inline-form">
-              <input
+              <Input
                 id="new-trip"
                 value={newTripName}
                 onChange={(event) => setNewTripName(event.target.value)}
                 placeholder="Dahilayan weekend"
               />
-              <button type="submit">Create</button>
+              <Button type="submit">Create</Button>
             </div>
           </form>
 
@@ -534,33 +627,33 @@ export function ExpenseTrackerApp() {
                 <article className={`trip-item ${selectedTrip?.id === trip.id && !isReadOnly ? "active" : ""}`} key={trip.id}>
                   {renamingTripId === trip.id ? (
                     <form className="stack" onSubmit={handleRenameTrip}>
-                      <input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus />
+                      <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} autoFocus />
                       <div className="compact-actions">
-                        <button type="submit">Save</button>
-                        <button className="ghost-button" type="button" onClick={() => setRenamingTripId(null)}>
+                        <Button type="submit">Save</Button>
+                        <Button className="ghost-button" variant="outline" type="button" onClick={() => setRenamingTripId(null)}>
                           Cancel
-                        </button>
+                        </Button>
                       </div>
                     </form>
                   ) : (
                     <>
-                      <button className="trip-select" type="button" onClick={() => { setSelectedTripId(trip.id); setSharedTrip(null); }}>
+                      <Button className="trip-select" variant="ghost" type="button" onClick={() => { setSelectedTripId(trip.id); setSharedTrip(null); }}>
                         <span>{trip.name}</span>
                         <small>{trip.people.length} people | {trip.expenses.length} expenses | {formatMoney(getTripTotalMinor(trip))}</small>
-                      </button>
+                      </Button>
                       <div className="compact-actions">
-                        <button className="ghost-button" type="button" onClick={() => { setRenamingTripId(trip.id); setRenameValue(trip.name); }}>
+                        <Button className="ghost-button" variant="outline" type="button" onClick={() => { setRenamingTripId(trip.id); setRenameValue(trip.name); }}>
                           Rename
-                        </button>
-                        <button className="ghost-button" type="button" onClick={() => handleDuplicateTrip(trip)}>
+                        </Button>
+                        <Button className="ghost-button" variant="outline" type="button" onClick={() => handleDuplicateTrip(trip)}>
                           Duplicate
-                        </button>
-                        <button className="ghost-button" type="button" onClick={() => handleExportTrip(trip)}>
+                        </Button>
+                        <Button className="ghost-button" variant="outline" type="button" onClick={() => handleExportTrip(trip)}>
                           Export
-                        </button>
-                        <button className="danger-button" type="button" onClick={() => handleDeleteTrip(trip.id)}>
+                        </Button>
+                        <Button className="danger-button" variant="destructive" type="button" onClick={() => handleDeleteTrip(trip)}>
                           Delete
-                        </button>
+                        </Button>
                       </div>
                     </>
                   )}
@@ -580,13 +673,13 @@ export function ExpenseTrackerApp() {
               </div>
               <div className="header-actions">
                 {isReadOnly ? (
-                  <button type="button" onClick={handleSaveSharedTrip}>Duplicate to my trips</button>
+                  <Button type="button" onClick={handleSaveSharedTrip}>Duplicate to my trips</Button>
                 ) : (
                   <>
-                    <button className="ghost-button" type="button" onClick={() => handleExportTrip(selectedTrip)}>
+                    <Button className="ghost-button" variant="outline" type="button" onClick={() => handleExportTrip(selectedTrip)}>
                       Export JSON
-                    </button>
-                    <button type="button" onClick={handleCopyShareLink}>Copy share link</button>
+                    </Button>
+                    <Button type="button" onClick={handleCopyShareLink}>Copy share link</Button>
                   </>
                 )}
               </div>
@@ -608,8 +701,8 @@ export function ExpenseTrackerApp() {
                 </div>
                 {!isReadOnly ? (
                   <form className="inline-form" onSubmit={handleAddPerson}>
-                    <input value={newPersonName} onChange={(event) => setNewPersonName(event.target.value)} placeholder="Matthew" />
-                    <button type="submit">Add</button>
+                    <Input value={newPersonName} onChange={(event) => setNewPersonName(event.target.value)} placeholder="Matthew" />
+                    <Button type="submit">Add</Button>
                   </form>
                 ) : null}
                 <div className="person-list">
@@ -623,9 +716,9 @@ export function ExpenseTrackerApp() {
                           <span>{person.name}</span>
                         </span>
                         {!isReadOnly ? (
-                          <button className="ghost-button" type="button" onClick={() => handleRemovePerson(person.id)}>
+                          <Button className="ghost-button" variant="outline" type="button" onClick={() => handleRemovePerson(person.id)}>
                             Remove
-                          </button>
+                          </Button>
                         ) : null}
                       </div>
                     ))
@@ -698,16 +791,17 @@ export function ExpenseTrackerApp() {
                     <h2>{editingExpenseId ? "Edit expense" : "Add ambag"}</h2>
                   </div>
                   {editingExpenseId ? (
-                    <button className="ghost-button" type="button" onClick={resetExpenseForm}>
+                    <Button className="ghost-button" variant="outline" type="button" onClick={resetExpenseForm}>
                       Cancel edit
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
                 <ExpenseForm
                   draft={draft}
+                  error={draftError}
                   people={selectedTrip.people}
                   onSubmit={handleSubmitExpense}
-                  onDraftChange={setDraft}
+                  onDraftChange={updateDraft}
                   onParticipantChange={updateParticipant}
                   onSetAllParticipants={setAllParticipants}
                   isEditing={Boolean(editingExpenseId)}
@@ -745,12 +839,12 @@ export function ExpenseTrackerApp() {
                         <strong>{formatMoney(expense.amountMinor)}</strong>
                         {!isReadOnly ? (
                           <div className="compact-actions">
-                            <button className="ghost-button" type="button" onClick={() => handleEditExpense(expense)}>
+                            <Button className="ghost-button" variant="outline" type="button" onClick={() => handleEditExpense(expense)}>
                               Edit
-                            </button>
-                            <button className="danger-button" type="button" onClick={() => handleDeleteExpense(expense.id)}>
+                            </Button>
+                            <Button className="danger-button" variant="destructive" type="button" onClick={() => handleDeleteExpense(expense)}>
                               Delete
-                            </button>
+                            </Button>
                           </div>
                         ) : null}
                       </div>
@@ -768,6 +862,13 @@ export function ExpenseTrackerApp() {
           </section>
         )}
       </div>
+      <ConfirmDialog
+        confirmDialog={confirmDialog}
+        onConfirm={confirmCurrentDialog}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) setConfirmDialog(null);
+        }}
+      />
     </main>
   );
 }
@@ -784,6 +885,7 @@ function MetricCard({ label, value, detail }: { label: string; value: string; de
 
 function ExpenseForm({
   draft,
+  error,
   people,
   onSubmit,
   onDraftChange,
@@ -792,6 +894,7 @@ function ExpenseForm({
   isEditing
 }: {
   draft: ExpenseDraft;
+  error: ExpenseDraftError | null;
   people: Person[];
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onDraftChange: (draft: ExpenseDraft) => void;
@@ -801,13 +904,15 @@ function ExpenseForm({
 }) {
   const selectedPeople = people.filter((person) => draft.participantIds.includes(person.id));
   const allPeopleSelected = people.length > 0 && draft.participantIds.length === people.length;
+  const selectedPayerName = people.find((person) => person.id === draft.paidByPersonId)?.name ?? "Choose payer";
 
   return (
     <form className="expense-form" onSubmit={onSubmit}>
       <div className="form-grid">
         <label>
           Description
-          <input
+          <Input
+            aria-invalid={error?.field === "description"}
             value={draft.description}
             onChange={(event) => onDraftChange({ ...draft, description: event.target.value })}
             placeholder="Lunch, van rental, groceries"
@@ -815,7 +920,8 @@ function ExpenseForm({
         </label>
         <label>
           Amount
-          <input
+          <Input
+            aria-invalid={error?.field === "amount"}
             inputMode="decimal"
             value={draft.amount}
             onChange={(event) => onDraftChange({ ...draft, amount: event.target.value })}
@@ -824,7 +930,7 @@ function ExpenseForm({
         </label>
         <label>
           Date
-          <input
+          <Input
             type="date"
             value={draft.date}
             onChange={(event) => onDraftChange({ ...draft, date: event.target.value })}
@@ -832,35 +938,53 @@ function ExpenseForm({
         </label>
         <label>
           Paid by
-          <select value={draft.paidByPersonId} onChange={(event) => onDraftChange({ ...draft, paidByPersonId: event.target.value })}>
-            <option value="">Choose payer</option>
-            {people.map((person) => (
-              <option key={person.id} value={person.id}>{person.name}</option>
-            ))}
-          </select>
+          <Select
+            value={draft.paidByPersonId}
+            onValueChange={(paidByPersonId) => {
+              if (paidByPersonId) onDraftChange({ ...draft, paidByPersonId });
+            }}
+          >
+            <SelectTrigger aria-invalid={error?.field === "paidByPersonId"}>
+              <span>{selectedPayerName}</span>
+            </SelectTrigger>
+            <SelectContent>
+              {people.map((person) => (
+                <SelectItem key={person.id} value={person.id}>{person.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </label>
         <label>
           Split type
-          <select value={draft.splitType} onChange={(event) => onDraftChange({ ...draft, splitType: event.target.value as SplitType })}>
-            <option value="equal">Split equally</option>
-            <option value="exact">Enter exact amounts</option>
-          </select>
+          <Select
+            value={draft.splitType}
+            onValueChange={(splitType) => {
+              if (splitType) onDraftChange({ ...draft, splitType: splitType as SplitType });
+            }}
+          >
+            <SelectTrigger>
+              <span>{getSplitTypeLabel(draft.splitType)}</span>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="equal">Split equally</SelectItem>
+              <SelectItem value="exact">Enter exact amounts</SelectItem>
+            </SelectContent>
+          </Select>
         </label>
       </div>
 
       <div className="participant-toolbar">
         <span>People involved</span>
-        <button className="ghost-button" type="button" onClick={() => onSetAllParticipants(!allPeopleSelected)} disabled={people.length === 0}>
+        <Button className="ghost-button" variant="outline" type="button" onClick={() => onSetAllParticipants(!allPeopleSelected)} disabled={people.length === 0}>
           {allPeopleSelected ? "Clear all" : "Select everyone"}
-        </button>
+        </Button>
       </div>
-      <div className="participant-grid">
+      <div className="participant-grid" aria-invalid={error?.field === "participantIds"}>
         {people.map((person) => (
           <label className="check-row" key={person.id}>
-            <input
-              type="checkbox"
+            <Checkbox
               checked={draft.participantIds.includes(person.id)}
-              onChange={(event) => onParticipantChange(person.id, event.target.checked)}
+              onCheckedChange={(checked) => onParticipantChange(person.id, checked === true)}
             />
             <span>{person.name}</span>
           </label>
@@ -872,7 +996,8 @@ function ExpenseForm({
           {selectedPeople.map((person) => (
             <label key={person.id}>
               {person.name}
-              <input
+              <Input
+                aria-invalid={error?.field === "exactShares"}
                 inputMode="decimal"
                 value={draft.exactShares[person.id] ?? ""}
                 onChange={(event) =>
@@ -891,10 +1016,51 @@ function ExpenseForm({
         </div>
       ) : null}
 
-      <button className="submit-button" type="submit" disabled={people.length === 0}>
+      <Button className="submit-button" type="submit" disabled={people.length === 0}>
         {isEditing ? "Save expense" : "Add ambag"}
-      </button>
+      </Button>
     </form>
+  );
+}
+
+function ConfirmDialog({
+  confirmDialog,
+  onConfirm,
+  onOpenChange
+}: {
+  confirmDialog: ConfirmDialogState | null;
+  onConfirm: () => void;
+  onOpenChange: (isOpen: boolean) => void;
+}) {
+  return (
+    <Dialog open={Boolean(confirmDialog)} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{confirmDialog?.title}</DialogTitle>
+          <DialogDescription>{confirmDialog?.description}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose render={<Button className="ghost-button" variant="outline" />}>Cancel</DialogClose>
+          <Button
+            className={confirmDialog?.tone === "danger" ? "danger-button" : undefined}
+            variant={confirmDialog?.tone === "danger" ? "destructive" : "default"}
+            type="button"
+            onClick={onConfirm}
+          >
+            {confirmDialog?.confirmLabel}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function AmbaganLogo() {
+  return (
+    <svg className="ambagan-logo" viewBox="0 0 32 32" role="img" aria-label="Ambagan logo">
+      <path d="M16 3 29 10.5v11L16 29 3 21.5v-11L16 3Z" />
+      <path d="M16 8.5 23.5 23h-3.9l-1.1-2.5h-5.1L12.4 23H8.5L16 8.5Zm-1.3 9h2.6L16 14.3l-1.3 3.2Z" />
+    </svg>
   );
 }
 
