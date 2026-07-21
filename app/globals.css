@@ -348,7 +348,7 @@ small {
 .metrics-grid,
 .two-column {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -483,6 +483,12 @@ small {
   white-space: nowrap;
 }
 
+.settlement-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .settlement-summary {
   border-color: #b9d7cd;
   background: var(--success-soft);
@@ -524,6 +530,17 @@ small {
 .expense-form {
   display: grid;
   gap: 16px;
+}
+
+.payment-form {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
+  align-items: end;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  padding: 12px;
 }
 
 .expense-dialog {
@@ -671,7 +688,8 @@ small {
   .workspace,
   .two-column,
   .metrics-grid,
-  .form-grid {
+  .form-grid,
+  .payment-form {
     grid-template-columns: 1fr;
   }
 
@@ -725,6 +743,11 @@ small {
 
   .expense-actions {
     justify-items: stretch;
+  }
+
+  .settlement-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .submit-button {

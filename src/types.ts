@@ -30,12 +30,22 @@ export type Expense = {
   createdAt: string;
 };
 
+export type Payment = {
+  id: string;
+  fromPersonId: string;
+  toPersonId: string;
+  amountMinor: number;
+  date?: string;
+  createdAt: string;
+};
+
 export type Trip = {
   id: string;
   name: string;
   currency: "PHP";
   people: Person[];
   expenses: Expense[];
+  payments?: Payment[];
   createdAt: string;
   updatedAt: string;
 };

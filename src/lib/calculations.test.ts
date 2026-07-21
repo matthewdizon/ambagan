@@ -154,6 +154,41 @@ describe("calculatePersonBalances", () => {
       { personId: "c", paidMinor: 0, shareMinor: 0, balanceMinor: 0 }
     ]);
   });
+
+  it("applies recorded payments to remaining balances", () => {
+    const trip = {
+      ...tripWithExpenses([
+        {
+          id: "expense_1",
+          description: "Dinner",
+          amountMinor: 90000,
+          paidByPersonId: "a",
+          splitType: "equal" as const,
+          createdAt: "2026-07-20T00:00:00.000Z",
+          shares: [
+            { personId: "a", amountMinor: 30000 },
+            { personId: "b", amountMinor: 30000 },
+            { personId: "c", amountMinor: 30000 }
+          ]
+        }
+      ]),
+      payments: [
+        {
+          id: "payment_1",
+          fromPersonId: "b",
+          toPersonId: "a",
+          amountMinor: 30000,
+          createdAt: "2026-07-20T00:00:00.000Z"
+        }
+      ]
+    };
+
+    expect(calculatePersonBalances(trip)).toEqual([
+      { personId: "a", paidMinor: 90000, shareMinor: 30000, balanceMinor: 30000 },
+      { personId: "b", paidMinor: 0, shareMinor: 30000, balanceMinor: 0 },
+      { personId: "c", paidMinor: 0, shareMinor: 30000, balanceMinor: -30000 }
+    ]);
+  });
 });
 
 describe("calculateSettlements", () => {

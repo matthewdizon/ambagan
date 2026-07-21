@@ -24,7 +24,7 @@ import { calculatePersonBalances, calculateSettlementReceipts, calculateSettleme
 import { decodeTripFromHash } from "@/lib/share";
 import { loadTripFromStorage, saveTripToStorage } from "@/lib/storage";
 import { formatMoney, minorToPesoInput, pesoToMinor, splitEvenly } from "@/lib/money";
-import type { Expense, ExpenseLineItem, ExpenseShare, Person, SplitType, Trip } from "@/types";
+import type { Expense, ExpenseLineItem, ExpenseShare, Payment, Person, SplitType, Trip } from "@/types";
 import { toast } from "sonner";
 
 type ExpenseLineItemDraft = {
@@ -50,6 +50,18 @@ type ExpenseDraftError = {
   message: string;
 };
 
+type PaymentDraft = {
+  fromPersonId: string;
+  toPersonId: string;
+  amount: string;
+  date: string;
+};
+
+type PaymentDraftError = {
+  field: "fromPersonId" | "toPersonId" | "amount";
+  message: string;
+};
+
 type ConfirmDialogState = {
   title: string;
   description: string;
@@ -69,6 +81,13 @@ const emptyDraft: ExpenseDraft = {
   lineItems: []
 };
 
+const emptyPaymentDraft: PaymentDraft = {
+  fromPersonId: "",
+  toPersonId: "",
+  amount: "",
+  date: ""
+};
+
 function createId(prefix: string) {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -82,6 +101,7 @@ function createTrip(name: string): Trip {
     currency: "PHP",
     people: [],
     expenses: [],
+    payments: [],
     createdAt: now,
     updatedAt: now
   };
@@ -272,6 +292,30 @@ function createDraftForTrip(trip: Trip): ExpenseDraft {
   };
 }
 
+function createPaymentDraftForTrip(trip: Trip): PaymentDraft {
+  return {
+    ...emptyPaymentDraft,
+    fromPersonId: trip.people[0]?.id ?? "",
+    toPersonId: trip.people.find((person) => person.id !== trip.people[0]?.id)?.id ?? "",
+    date: getTodayInputDate()
+  };
+}
+
+function validatePaymentDraft(draft: PaymentDraft): PaymentDraftError | null {
+  const amountMinor = pesoToMinor(draft.amount);
+
+  if (!draft.fromPersonId) return { field: "fromPersonId", message: "Choose who paid." };
+  if (!draft.toPersonId) return { field: "toPersonId", message: "Choose who received the payment." };
+  if (draft.fromPersonId === draft.toPersonId) {
+    return { field: "toPersonId", message: "Choose two different people." };
+  }
+  if (!Number.isFinite(amountMinor) || amountMinor <= 0) {
+    return { field: "amount", message: "Enter a valid payment amount greater than zero." };
+  }
+
+  return null;
+}
+
 export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedTrip?: Trip | null }) {
   const [isReady, setIsReady] = useState(false);
   const [trip, setTrip] = useState<Trip | null>(null);
@@ -281,6 +325,8 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
   const [renameValue, setRenameValue] = useState("");
   const [draft, setDraft] = useState<ExpenseDraft>(emptyDraft);
   const [draftError, setDraftError] = useState<ExpenseDraftError | null>(null);
+  const [paymentDraft, setPaymentDraft] = useState<PaymentDraft>(emptyPaymentDraft);
+  const [paymentDraftError, setPaymentDraftError] = useState<PaymentDraftError | null>(null);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
@@ -313,16 +359,25 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
       paidByPersonId: current.paidByPersonId || selectedTrip.people[0].id,
       participantIds: current.participantIds.length > 0 ? current.participantIds : selectedTrip.people.map((person) => person.id)
     }));
+
+    setPaymentDraft((current) => ({
+      ...current,
+      date: current.date || getTodayInputDate(),
+      fromPersonId: current.fromPersonId || selectedTrip.people[0].id,
+      toPersonId: current.toPersonId || (selectedTrip.people.find((person) => person.id !== selectedTrip.people[0].id)?.id ?? "")
+    }));
   }, [editingExpenseId, selectedTrip]);
 
   const balances = useMemo(() => (selectedTrip ? calculatePersonBalances(selectedTrip) : []), [selectedTrip]);
   const settlements = useMemo(() => calculateSettlements(balances), [balances]);
   const settlementReceipts = useMemo(() => calculateSettlementReceipts(settlements), [settlements]);
   const tripTotal = selectedTrip ? getTripTotalMinor(selectedTrip) : 0;
+  const payments = selectedTrip?.payments ?? [];
   const tripMetrics = selectedTrip
     ? [
         { label: "People", value: selectedTrip.people.length.toString(), detail: "Included in this ambagan" },
-        { label: "Expenses", value: selectedTrip.expenses.length.toString(), detail: "Tracked payments" },
+        { label: "Expenses", value: selectedTrip.expenses.length.toString(), detail: "Tracked shared costs" },
+        { label: "Settled", value: formatMoney(payments.reduce((total, payment) => total + payment.amountMinor, 0)), detail: "Already paid back" },
         { label: "Total", value: formatMoney(tripTotal), detail: "Group spend so far" }
       ]
     : [];
@@ -397,6 +452,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
         ...imported,
         id: createId("trip"),
         currency: "PHP",
+        payments: imported.payments ?? [],
         createdAt: imported.createdAt ?? now,
         updatedAt: now
       };
@@ -406,6 +462,8 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
       setIsRenamingTrip(false);
       setDraft(createDraftForTrip(importedTrip));
       setDraftError(null);
+      setPaymentDraft(createPaymentDraftForTrip(importedTrip));
+      setPaymentDraftError(null);
       setEditingExpenseId(null);
       window.history.replaceState(null, "", "/");
       showNotice("success", "JSON opened.");
@@ -447,6 +505,11 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
         }
       };
     });
+    setPaymentDraft((current) => ({
+      ...current,
+      fromPersonId: current.fromPersonId || person.id,
+      toPersonId: current.toPersonId || person.id
+    }));
     setNewPersonName("");
     showNotice("success", "Person added.");
   }
@@ -457,9 +520,9 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
 
     const isUsed = selectedTrip.expenses.some(
       (expense) => expense.paidByPersonId === personId || expense.shares.some((share) => share.personId === personId)
-    );
+    ) || payments.some((payment) => payment.fromPersonId === personId || payment.toPersonId === personId);
     if (isUsed) {
-      showNotice("error", "Delete expenses involving this person before removing them.");
+      showNotice("error", "Delete expenses or payments involving this person before removing them.");
       return;
     }
 
@@ -567,6 +630,65 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
     });
   }
 
+  function updatePaymentDraft(nextDraft: PaymentDraft) {
+    setPaymentDraft(nextDraft);
+    if (paymentDraftError) setPaymentDraftError(null);
+  }
+
+  function handleSubmitPayment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!selectedTrip || isReadOnly) return;
+
+    const error = validatePaymentDraft(paymentDraft);
+    if (error) {
+      setPaymentDraftError(error);
+      showNotice("error", error.message);
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const payment: Payment = {
+      id: createId("payment"),
+      fromPersonId: paymentDraft.fromPersonId,
+      toPersonId: paymentDraft.toPersonId,
+      amountMinor: pesoToMinor(paymentDraft.amount),
+      date: paymentDraft.date || getTodayInputDate(),
+      createdAt: now
+    };
+
+    updateTrip((trip) => ({
+      ...trip,
+      payments: [payment, ...(trip.payments ?? [])]
+    }));
+    setPaymentDraft({
+      ...createPaymentDraftForTrip(selectedTrip),
+      fromPersonId: payment.fromPersonId,
+      toPersonId: payment.toPersonId
+    });
+    setPaymentDraftError(null);
+    showNotice("success", "Payment recorded.");
+  }
+
+  function deletePayment(paymentId: string) {
+    if (!selectedTrip || isReadOnly) return;
+
+    updateTrip((trip) => ({
+      ...trip,
+      payments: (trip.payments ?? []).filter((payment) => payment.id !== paymentId)
+    }));
+    showNotice("success", "Payment deleted.");
+  }
+
+  function handleDeletePayment(payment: Payment) {
+    askConfirm({
+      title: "Delete payment?",
+      description: `This removes the ${formatMoney(payment.amountMinor)} payment from ${getPersonName(selectedTrip!, payment.fromPersonId)} to ${getPersonName(selectedTrip!, payment.toPersonId)} and recalculates balances.`,
+      confirmLabel: "Delete payment",
+      tone: "danger",
+      onConfirm: () => deletePayment(payment.id)
+    });
+  }
+
   async function handleCopyShareLink() {
     if (!selectedTrip) return;
 
@@ -601,6 +723,8 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
     setIsRenamingTrip(false);
     setDraft(createDraftForTrip(editableTrip));
     setDraftError(null);
+    setPaymentDraft(createPaymentDraftForTrip(editableTrip));
+    setPaymentDraftError(null);
     setEditingExpenseId(null);
     window.history.replaceState(null, "", "/");
     showNotice("success", "Editable copy saved.");
@@ -763,6 +887,15 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                     <h2>Settlements</h2>
                   </div>
                 </div>
+                {!isReadOnly ? (
+                  <PaymentForm
+                    draft={paymentDraft}
+                    error={paymentDraftError}
+                    people={selectedTrip.people}
+                    onSubmit={handleSubmitPayment}
+                    onDraftChange={updatePaymentDraft}
+                  />
+                ) : null}
                 {settlements.length === 0 ? (
                   <div className="empty-state">No one owes anything yet.</div>
                 ) : (
@@ -777,6 +910,28 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                       <div className="settlement-row settlement-summary" key={`receipt-${personId}`}>
                         <span>{getPersonName(selectedTrip, personId)} gets back</span>
                         <strong>{formatMoney(amountMinor)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {payments.length === 0 ? (
+                  <div className="empty-state">No payments recorded yet.</div>
+                ) : (
+                  <div className="settlement-list">
+                    {payments.map((payment) => (
+                      <div className="settlement-row" key={payment.id}>
+                        <span>
+                          {getPersonName(selectedTrip, payment.fromPersonId)} paid {getPersonName(selectedTrip, payment.toPersonId)}
+                          {payment.date ? ` on ${formatExpenseDate(payment.date)}` : ""}
+                        </span>
+                        <span className="settlement-actions">
+                          <strong>{formatMoney(payment.amountMinor)}</strong>
+                          {!isReadOnly ? (
+                            <Button className="danger-button" variant="destructive" type="button" onClick={() => handleDeletePayment(payment)}>
+                              Delete
+                            </Button>
+                          ) : null}
+                        </span>
                       </div>
                     ))}
                   </div>
@@ -937,6 +1092,99 @@ function TripActions({
   );
 }
 
+function PaymentForm({
+  draft,
+  error,
+  people,
+  onSubmit,
+  onDraftChange
+}: {
+  draft: PaymentDraft;
+  error: PaymentDraftError | null;
+  people: Person[];
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onDraftChange: (draft: PaymentDraft) => void;
+}) {
+  return (
+    <form className="payment-form" onSubmit={onSubmit}>
+      <label>
+        From
+        <PersonSelect
+          people={people}
+          value={draft.fromPersonId}
+          placeholder="Who paid"
+          ariaInvalid={error?.field === "fromPersonId"}
+          onValueChange={(fromPersonId) => {
+            if (fromPersonId) onDraftChange({ ...draft, fromPersonId });
+          }}
+        />
+      </label>
+      <label>
+        To
+        <PersonSelect
+          people={people}
+          value={draft.toPersonId}
+          placeholder="Who received"
+          ariaInvalid={error?.field === "toPersonId"}
+          onValueChange={(toPersonId) => {
+            if (toPersonId) onDraftChange({ ...draft, toPersonId });
+          }}
+        />
+      </label>
+      <label>
+        Amount
+        <Input
+          aria-invalid={error?.field === "amount"}
+          inputMode="decimal"
+          value={draft.amount}
+          onChange={(event) => onDraftChange({ ...draft, amount: event.target.value })}
+        />
+      </label>
+      <label>
+        Date
+        <Input type="date" value={draft.date} onChange={(event) => onDraftChange({ ...draft, date: event.target.value })} />
+      </label>
+      <Button type="submit" disabled={people.length < 2}>
+        Record payment
+      </Button>
+    </form>
+  );
+}
+
+function PersonSelect({
+  people,
+  value,
+  placeholder,
+  ariaInvalid,
+  onValueChange
+}: {
+  people: Person[];
+  value: string;
+  placeholder: string;
+  ariaInvalid?: boolean;
+  onValueChange: (personId: string) => void;
+}) {
+  const selectedPersonName = people.find((person) => person.id === value)?.name ?? placeholder;
+
+  return (
+    <Select
+      value={value}
+      onValueChange={(personId) => {
+        if (personId) onValueChange(personId);
+      }}
+    >
+      <SelectTrigger className="w-full" aria-invalid={ariaInvalid}>
+        <span>{selectedPersonName}</span>
+      </SelectTrigger>
+      <SelectContent>
+        {people.map((person) => (
+          <SelectItem key={person.id} value={person.id}>{person.name}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function ExpenseBreakdown({ expense, people }: { expense: Expense; people: Person[] }) {
   function personName(personId: string) {
     return people.find((person) => person.id === personId)?.name ?? "Unknown";
@@ -1057,7 +1305,6 @@ function ExpenseForm({
 }) {
   const selectedPeople = people.filter((person) => draft.participantIds.includes(person.id));
   const allPeopleSelected = people.length > 0 && draft.participantIds.length === people.length;
-  const selectedPayerName = people.find((person) => person.id === draft.paidByPersonId)?.name ?? "Choose payer";
   const itemizedTotalMinor = getItemizedAmountMinor(draft);
 
   return (
@@ -1092,21 +1339,15 @@ function ExpenseForm({
         </label>
         <label>
           Paid by
-          <Select
+          <PersonSelect
+            people={people}
             value={draft.paidByPersonId}
+            placeholder="Choose payer"
+            ariaInvalid={error?.field === "paidByPersonId"}
             onValueChange={(paidByPersonId) => {
               if (paidByPersonId) onDraftChange({ ...draft, paidByPersonId });
             }}
-          >
-            <SelectTrigger className="w-full" aria-invalid={error?.field === "paidByPersonId"}>
-              <span>{selectedPayerName}</span>
-            </SelectTrigger>
-            <SelectContent>
-              {people.map((person) => (
-                <SelectItem key={person.id} value={person.id}>{person.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          />
         </label>
         <label>
           Split type

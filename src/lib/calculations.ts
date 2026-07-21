@@ -28,6 +28,18 @@ export function calculatePersonBalances(trip: Trip): PersonBalance[] {
     }
   }
 
+  for (const payment of trip.payments ?? []) {
+    const sender = balances.get(payment.fromPersonId);
+    if (sender) {
+      sender.balanceMinor += payment.amountMinor;
+    }
+
+    const receiver = balances.get(payment.toPersonId);
+    if (receiver) {
+      receiver.balanceMinor -= payment.amountMinor;
+    }
+  }
+
   return trip.people.map((person) => balances.get(person.id)).filter(Boolean) as PersonBalance[];
 }
 
