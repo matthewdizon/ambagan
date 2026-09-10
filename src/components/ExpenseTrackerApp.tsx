@@ -20,11 +20,11 @@ import {
   SelectTrigger
 } from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
-import { calculateDirectSettlements, calculatePersonBalances, calculateSettlements, getTripTotalMinor } from "@/lib/calculations";
+import { calculateDirectSettlementBreakdown, calculateDirectSettlements, calculatePersonBalances, calculateSettlements, calculateSimplifiedSettlementBreakdown, calculateSimplifiedSettlementRoutes, getTripTotalMinor } from "@/lib/calculations";
 import { decodeTripFromHash } from "@/lib/share";
 import { loadTripFromStorage, saveTripToStorage } from "@/lib/storage";
 import { formatMoney, minorToPesoInput, pesoToMinor, splitEvenly } from "@/lib/money";
-import type { Expense, ExpenseLineItem, ExpenseShare, Payment, Person, Settlement, SplitType, Trip } from "@/types";
+import type { Expense, ExpenseLineItem, ExpenseShare, Payment, Person, PersonBalance, Settlement, SplitType, Trip } from "@/types";
 import { toast } from "sonner";
 
 type ExpenseLineItemDraft = {
@@ -328,6 +328,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
   const [paymentDraft, setPaymentDraft] = useState<PaymentDraft>(emptyPaymentDraft);
   const [paymentDraftError, setPaymentDraftError] = useState<PaymentDraftError | null>(null);
   const [simplifyTransfers, setSimplifyTransfers] = useState(true);
+  const [expensePayerFilter, setExpensePayerFilter] = useState<string | null>(null);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
@@ -388,6 +389,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
   }, [visibleSettlements]);
   const tripTotal = selectedTrip ? getTripTotalMinor(selectedTrip) : 0;
   const payments = selectedTrip?.payments ?? [];
+  const filteredExpenses = selectedTrip?.expenses.filter((expense) => !expensePayerFilter || expense.paidByPersonId === expensePayerFilter) ?? [];
   const tripMetrics = selectedTrip
     ? [
         { label: "People", value: selectedTrip.people.length.toString(), detail: "Included in this ambagan" },
@@ -860,8 +862,9 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
               ))}
             </section>
 
-            <section className="two-column">
-              <div className="panel">
+            <section className="two-column overview-grid">
+              <div className="sidebar-stack">
+                <div className="panel">
                 <div className="panel-heading">
                   <div>
                     <p className="eyebrow">Group</p>
@@ -893,9 +896,35 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                     ))
                   )}
                 </div>
+                </div>
+
+                <div className="panel balance-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <p className="eyebrow">Running totals</p>
+                      <h2>Balances</h2>
+                    </div>
+                  </div>
+                  {balances.length === 0 ? (
+                    <div className="empty-state">Balances will appear once people are added.</div>
+                  ) : (
+                    <div className="compact-balance-list">
+                      {balances.map((balance) => (
+                        <div className="compact-balance-row" key={balance.personId}>
+                          <span className="person-identity">
+                            <PersonAvatar name={getPersonName(selectedTrip, balance.personId)} />
+                            <span>{getPersonName(selectedTrip, balance.personId)}</span>
+                          </span>
+                          <span className={balance.balanceMinor >= 0 ? "positive" : "negative"}>{formatMoney(balance.balanceMinor)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
-              <div className="panel">
+              <div className="main-stack">
+                <div className="panel">
                 <div className="panel-heading settlement-heading">
                   <div>
                     <p className="eyebrow">Settle up</p>
@@ -961,9 +990,22 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                         </summary>
                         <div className="settlement-breakdown">
                           {group.transfers.map((transfer) => (
-                            <div className="breakdown-row" key={`${transfer.fromPersonId}-${transfer.toPersonId}-${transfer.amountMinor}`}>
-                              <span>{getPersonName(selectedTrip, transfer.fromPersonId)} pays</span>
-                              <strong>{formatMoney(transfer.amountMinor)}</strong>
+                            <div className="breakdown-entry" key={`${transfer.fromPersonId}-${transfer.toPersonId}-${transfer.amountMinor}`}>
+                              <div className="breakdown-row">
+                                <span className="breakdown-payer">
+                                  {getPersonName(selectedTrip, transfer.fromPersonId)} pays
+                                  {simplifyTransfers ? (
+                                    <SimplifiedTransferExplanation
+                                      balances={balances}
+                                      directSettlements={directSettlements}
+                                      settlements={settlements}
+                                      trip={selectedTrip}
+                                      transfer={transfer}
+                                    />
+                                  ) : <DirectTransferExplanation trip={selectedTrip} transfer={transfer} />}
+                                </span>
+                                <strong>{formatMoney(transfer.amountMinor)}</strong>
+                              </div>
                             </div>
                           ))}
                           <div className="breakdown-total">
@@ -998,39 +1040,9 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                     ))}
                   </div>
                 )}
-              </div>
-            </section>
-
-            <section className="panel">
-              <div className="panel-heading">
-                <div>
-                  <p className="eyebrow">Running totals</p>
-                  <h2>Balances</h2>
                 </div>
-              </div>
-              {balances.length === 0 ? (
-                <div className="empty-state">Balances will appear once people are added.</div>
-              ) : (
-                <div className="balance-table">
-                  <div className="table-row table-head">
-                    <span>Person</span>
-                    <span>Paid</span>
-                    <span>Share</span>
-                    <span>Balance</span>
-                  </div>
-                  {balances.map((balance) => (
-                    <div className="table-row" key={balance.personId}>
-                      <span>{getPersonName(selectedTrip, balance.personId)}</span>
-                      <span>{formatMoney(balance.paidMinor)}</span>
-                      <span>{formatMoney(balance.shareMinor)}</span>
-                      <span className={balance.balanceMinor >= 0 ? "positive" : "negative"}>{formatMoney(balance.balanceMinor)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
 
-            <section className="panel">
+                <section className="panel">
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">Ledger</p>
@@ -1042,11 +1054,30 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                   </Button>
                 ) : null}
               </div>
+              {selectedTrip.expenses.length > 0 ? (
+                <div className="filter-bar" aria-label="Filter expenses by payer">
+                  <Button className={expensePayerFilter === null ? "filter-button active" : "filter-button"} type="button" onClick={() => setExpensePayerFilter(null)}>
+                    All
+                  </Button>
+                  {selectedTrip.people.map((person) => (
+                    <Button
+                      className={expensePayerFilter === person.id ? "filter-button active" : "filter-button"}
+                      key={person.id}
+                      type="button"
+                      onClick={() => setExpensePayerFilter((current) => current === person.id ? null : person.id)}
+                    >
+                      {person.name}
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
               {selectedTrip.expenses.length === 0 ? (
                 <div className="empty-state">No expenses yet. Add the first ambag when someone pays.</div>
+              ) : filteredExpenses.length === 0 ? (
+                <div className="empty-state">No expenses were paid by this person.</div>
               ) : (
                 <div className="expense-list">
-                  {selectedTrip.expenses.map((expense) => (
+                  {filteredExpenses.map((expense) => (
                     <article className="expense-item" key={expense.id}>
                       <div>
                         <h3>{expense.description}</h3>
@@ -1072,6 +1103,8 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                   ))}
                 </div>
               )}
+                </section>
+              </div>
             </section>
           </section>
         ) : (
@@ -1108,6 +1141,114 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
         onLineItemRemove={removeLineItem}
       />
     </main>
+  );
+}
+
+function DirectTransferExplanation({ trip, transfer }: { trip: Trip; transfer: Settlement }) {
+  const breakdown = calculateDirectSettlementBreakdown(trip, transfer);
+  const payerName = getPersonName(trip, transfer.fromPersonId);
+  const receiverName = getPersonName(trip, transfer.toPersonId);
+
+  return (
+    <TransferExplanationTooltip id={`direct-transfer-${transfer.fromPersonId}-${transfer.toPersonId}`}>
+      <span><strong>{formatMoney(breakdown.owedToReceiverMinor)}</strong><small>{payerName}&apos;s share paid by {receiverName}</small></span>
+      {breakdown.receiverOwedBackMinor > 0 ? <><b>−</b><span><strong>{formatMoney(breakdown.receiverOwedBackMinor)}</strong><small>{receiverName}&apos;s share paid by {payerName}</small></span></> : null}
+      {breakdown.paidToReceiverMinor > 0 ? <><b>−</b><span><strong>{formatMoney(breakdown.paidToReceiverMinor)}</strong><small>already paid</small></span></> : null}
+      {breakdown.paidBackMinor > 0 ? <><b>+</b><span><strong>{formatMoney(breakdown.paidBackMinor)}</strong><small>payment reversed</small></span></> : null}
+      <b>=</b>
+      <span><strong>{formatMoney(transfer.amountMinor)}</strong><small>remaining</small></span>
+    </TransferExplanationTooltip>
+  );
+}
+
+function SimplifiedTransferExplanation({
+  balances,
+  directSettlements,
+  settlements,
+  trip,
+  transfer
+}: {
+  balances: PersonBalance[];
+  directSettlements: Settlement[];
+  settlements: Settlement[];
+  trip: Trip;
+  transfer: Settlement;
+}) {
+  const personName = getPersonName(trip, transfer.fromPersonId);
+  const receiverName = getPersonName(trip, transfer.toPersonId);
+  const breakdown = calculateSimplifiedSettlementBreakdown(balances, directSettlements, settlements, transfer);
+  const routeBreakdown = calculateSimplifiedSettlementRoutes(directSettlements, settlements).get(transfer);
+
+  return (
+    <TransferExplanationTooltip detailed id={`simplified-transfer-${transfer.fromPersonId}-${transfer.toPersonId}`} title={`Why ${personName} pays ${receiverName}`}>
+      <span className="explanation-columns">
+        <span className="explanation-list">
+          <strong>Before simplifying, {personName} would pay</strong>
+          {breakdown.outgoingDebts.map((item) => <span key={item.toPersonId}><small>{getPersonName(trip, item.toPersonId)}</small><b>{formatMoney(item.amountMinor)}</b></span>)}
+          <span className="explanation-subtotal"><small>Total going out</small><b>{formatMoney(breakdown.outgoingTotalMinor)}</b></span>
+        </span>
+        <span className="explanation-list">
+          <strong>{personName} would receive</strong>
+          {breakdown.incomingDebts.length > 0 ? breakdown.incomingDebts.map((item) => <span key={item.fromPersonId}><small>from {getPersonName(trip, item.fromPersonId)}</small><b>{formatMoney(item.amountMinor)}</b></span>) : <small>Nothing</small>}
+          <span className="explanation-subtotal"><small>Total coming in</small><b>{formatMoney(breakdown.incomingTotalMinor)}</b></span>
+        </span>
+      </span>
+      <span className="plain-equation">
+        <span><small>Would pay</small><b>{formatMoney(breakdown.outgoingTotalMinor)}</b></span>
+        <b>−</b>
+        <span><small>Would receive</small><b>{formatMoney(breakdown.incomingTotalMinor)}</b></span>
+        <b>=</b>
+        <span><small>{personName}&apos;s net debt</small><strong>{formatMoney(breakdown.payerDebtMinor)}</strong></span>
+      </span>
+      <span className="routing-explanation">
+        <strong>How those payments become one payment to {receiverName}</strong>
+        {routeBreakdown?.routes.map((route, index) => {
+          const names = route.personIds.map((personId) => getPersonName(trip, personId));
+
+          const priorUseTotal = route.priorUses.reduce((total, use) => total + use.amountMinor, 0);
+
+          return route.personIds.length === 2 && priorUseTotal > 0 ? (
+            <small key={`${route.personIds.join("-")}-${index}`}>
+              {personName} originally owed {receiverName} <b>{formatMoney(route.amountMinor + priorUseTotal)}</b>. {route.priorUses.map((use, useIndex) => (
+                use.personIds[0] === transfer.fromPersonId ? (
+                  <span key={`${use.personIds.join("-")}-${useIndex}`}>{useIndex > 0 ? " Another " : " "}<b>{formatMoney(use.amountMinor)}</b> already went directly to {getPersonName(trip, use.personIds[use.personIds.length - 1])} because {receiverName} also owed {getPersonName(trip, use.personIds[use.personIds.length - 1])},</span>
+                ) : (
+                  <span key={`${use.personIds.join("-")}-${useIndex}`}>{useIndex > 0 ? " Another " : " "}<b>{formatMoney(use.amountMinor)}</b> was already covered when {getPersonName(trip, use.personIds[0])} paid {receiverName} directly instead of paying {personName} first,</span>
+                )
+              ))} leaving <b>{formatMoney(route.amountMinor)}</b> for {receiverName}.
+            </small>
+          ) : route.personIds.length === 2 ? (
+            <small key={`${route.personIds.join("-")}-${index}`}>
+              <b>{formatMoney(route.amountMinor)}</b> is what {personName} already owes {receiverName} directly.
+            </small>
+          ) : (
+            <small key={`${route.personIds.join("-")}-${index}`}>
+              <b>{formatMoney(route.amountMinor)}</b> replaces {names.slice(0, -1).map((name, nameIndex) => (
+                <span key={`${name}-${nameIndex}`}>{nameIndex > 0 ? " and " : ""}{name} paying {names[nameIndex + 1]}</span>
+              ))}. It goes straight from {personName} to {receiverName}, removing {route.personIds.length - 2} redundant {route.personIds.length - 2 === 1 ? "transaction" : "transactions"}.
+            </small>
+          );
+        })}
+        {routeBreakdown && routeBreakdown.routes.length > 1 ? (
+          <span className="routing-total"><small>Combined payment</small><b>{formatMoney(transfer.amountMinor)}</b></span>
+        ) : null}
+        {routeBreakdown?.unmatchedMinor ? (
+          <small><b>{formatMoney(routeBreakdown.unmatchedMinor)}</b> is matched through the group&apos;s remaining net balances.</small>
+        ) : null}
+      </span>
+    </TransferExplanationTooltip>
+  );
+}
+
+function TransferExplanationTooltip({ children, detailed = false, id, title = "Why this amount?" }: { children: React.ReactNode; detailed?: boolean; id: string; title?: string }) {
+  return (
+    <span className="transfer-explanation">
+      <button aria-describedby={id} className="why-button" type="button">Why?</button>
+      <span className={detailed ? "transfer-tooltip detailed" : "transfer-tooltip"} id={id} role="tooltip">
+        <strong>{title}</strong>
+        {detailed ? children : <span className="transfer-equation">{children}</span>}
+      </span>
+    </span>
   );
 }
 

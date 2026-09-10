@@ -117,6 +117,130 @@ export function calculateDirectSettlements(trip: Trip): Settlement[] {
   }).filter((settlement) => settlement.amountMinor > 0);
 }
 
+export function calculateDirectSettlementBreakdown(trip: Trip, settlement: Settlement) {
+  let owedToReceiverMinor = 0;
+  let receiverOwedBackMinor = 0;
+
+  for (const expense of trip.expenses) {
+    if (expense.paidByPersonId === settlement.toPersonId) {
+      owedToReceiverMinor += expense.shares.find((share) => share.personId === settlement.fromPersonId)?.amountMinor ?? 0;
+    }
+
+    if (expense.paidByPersonId === settlement.fromPersonId) {
+      receiverOwedBackMinor += expense.shares.find((share) => share.personId === settlement.toPersonId)?.amountMinor ?? 0;
+    }
+  }
+
+  let paidToReceiverMinor = 0;
+  let paidBackMinor = 0;
+
+  for (const payment of trip.payments ?? []) {
+    if (payment.fromPersonId === settlement.fromPersonId && payment.toPersonId === settlement.toPersonId) {
+      paidToReceiverMinor += payment.amountMinor;
+    }
+    if (payment.fromPersonId === settlement.toPersonId && payment.toPersonId === settlement.fromPersonId) {
+      paidBackMinor += payment.amountMinor;
+    }
+  }
+
+  return { owedToReceiverMinor, receiverOwedBackMinor, paidToReceiverMinor, paidBackMinor };
+}
+
+export function calculateSimplifiedSettlementBreakdown(
+  balances: PersonBalance[],
+  directSettlements: Settlement[],
+  settlements: Settlement[],
+  settlement: Settlement
+) {
+  const outgoingDebts = directSettlements.filter((item) => item.fromPersonId === settlement.fromPersonId);
+  const incomingDebts = directSettlements.filter((item) => item.toPersonId === settlement.fromPersonId);
+  const outgoingTotalMinor = outgoingDebts.reduce((total, item) => total + item.amountMinor, 0);
+  const incomingTotalMinor = incomingDebts.reduce((total, item) => total + item.amountMinor, 0);
+  const payerDebtMinor = Math.max(0, -(balances.find((balance) => balance.personId === settlement.fromPersonId)?.balanceMinor ?? 0));
+  const receiverCreditMinor = Math.max(0, balances.find((balance) => balance.personId === settlement.toPersonId)?.balanceMinor ?? 0);
+  const settlementIndex = settlements.indexOf(settlement);
+  const earlierSettlements = settlementIndex >= 0 ? settlements.slice(0, settlementIndex) : [];
+  const alreadyRoutedFromPayerMinor = earlierSettlements
+    .filter((item) => item.fromPersonId === settlement.fromPersonId)
+    .reduce((total, item) => total + item.amountMinor, 0);
+  const alreadyRoutedToReceiverMinor = earlierSettlements
+    .filter((item) => item.toPersonId === settlement.toPersonId)
+    .reduce((total, item) => total + item.amountMinor, 0);
+
+  return {
+    outgoingDebts,
+    incomingDebts,
+    outgoingTotalMinor,
+    incomingTotalMinor,
+    payerDebtMinor,
+    payerRemainingBeforeMinor: Math.max(0, payerDebtMinor - alreadyRoutedFromPayerMinor),
+    receiverCreditMinor,
+    receiverRemainingBeforeMinor: Math.max(0, receiverCreditMinor - alreadyRoutedToReceiverMinor)
+  };
+}
+
+export type SimplifiedSettlementRoute = {
+  amountMinor: number;
+  personIds: string[];
+  priorUses: Array<{ amountMinor: number; personIds: string[] }>;
+};
+
+export function calculateSimplifiedSettlementRoutes(
+  directSettlements: Settlement[],
+  settlements: Settlement[]
+): Map<Settlement, { routes: SimplifiedSettlementRoute[]; unmatchedMinor: number }> {
+  const remainingEdges = directSettlements.map((settlement) => ({ ...settlement }));
+  const edgeUses = directSettlements.map(() => [] as Array<{ amountMinor: number; personIds: string[] }>);
+  const result = new Map<Settlement, { routes: SimplifiedSettlementRoute[]; unmatchedMinor: number }>();
+
+  for (const settlement of settlements) {
+    const routes: SimplifiedSettlementRoute[] = [];
+    let unmatchedMinor = settlement.amountMinor;
+
+    while (unmatchedMinor > 0) {
+      const pathEdgeIndexes = findSettlementPath(remainingEdges, settlement.fromPersonId, settlement.toPersonId);
+      if (!pathEdgeIndexes) break;
+
+      const amountMinor = Math.min(unmatchedMinor, ...pathEdgeIndexes.map((index) => remainingEdges[index].amountMinor));
+      const personIds = [settlement.fromPersonId, ...pathEdgeIndexes.map((index) => remainingEdges[index].toPersonId)];
+      const priorUses = pathEdgeIndexes.length === 1 ? [...edgeUses[pathEdgeIndexes[0]]] : [];
+
+      routes.push({ amountMinor, personIds, priorUses });
+      unmatchedMinor -= amountMinor;
+      for (const index of pathEdgeIndexes) {
+        remainingEdges[index].amountMinor -= amountMinor;
+        edgeUses[index].push({ amountMinor, personIds });
+      }
+    }
+
+    result.set(settlement, { routes, unmatchedMinor });
+  }
+
+  return result;
+}
+
+function findSettlementPath(edges: Settlement[], fromPersonId: string, toPersonId: string): number[] | null {
+  const queue: Array<{ personId: string; path: number[] }> = [{ personId: fromPersonId, path: [] }];
+  const visited = new Set([fromPersonId]);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+
+    for (let index = 0; index < edges.length; index += 1) {
+      const edge = edges[index];
+      if (edge.amountMinor <= 0 || edge.fromPersonId !== current.personId || visited.has(edge.toPersonId)) continue;
+
+      const path = [...current.path, index];
+      if (edge.toPersonId === toPersonId) return path;
+
+      visited.add(edge.toPersonId);
+      queue.push({ personId: edge.toPersonId, path });
+    }
+  }
+
+  return null;
+}
+
 export function calculateSettlementReceipts(settlements: Settlement[]): Record<string, number> {
   return settlements.reduce<Record<string, number>>((totals, settlement) => {
     totals[settlement.toPersonId] = (totals[settlement.toPersonId] ?? 0) + settlement.amountMinor;
