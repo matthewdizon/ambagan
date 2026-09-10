@@ -13,6 +13,7 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { EllipsisIcon } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -840,7 +841,10 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
               </div>
               <div className="header-actions">
                 {isReadOnly ? (
-                  <Button type="button" onClick={handleSaveSharedTrip}>Save editable copy</Button>
+                  <TripActions
+                    iconOnly
+                    actions={[{ label: "Save editable copy", onSelect: handleSaveSharedTrip }]}
+                  />
                 ) : (
                   <>
                     <Button className="ghost-button" variant="outline" type="button" onClick={() => { setIsRenamingTrip(true); setRenameValue(selectedTrip.name); }}>
@@ -848,8 +852,10 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                     </Button>
                     <Button type="button" onClick={handleCopyShareLink}>Copy share link</Button>
                     <TripActions
-                      onOpenJson={() => importInputRef.current?.click()}
-                      onExportJson={() => handleExportTrip(selectedTrip)}
+                      actions={[
+                        { label: "Open JSON", onSelect: () => importInputRef.current?.click() },
+                        { label: "Export JSON", onSelect: () => handleExportTrip(selectedTrip) }
+                      ]}
                     />
                   </>
                 )}
@@ -976,7 +982,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                 ) : (
                   <div className="settlement-groups">
                     {settlementGroups.map((group) => (
-                      <details className="settlement-group" key={group.personId}>
+                      <details className="settlement-group" key={group.personId} open>
                         <summary>
                           <span className="recipient-identity">
                             <PersonAvatar name={getPersonName(selectedTrip, group.personId)} />
@@ -1278,11 +1284,11 @@ function MetricCard({ label, value, detail }: { label: string; value: string; de
 }
 
 function TripActions({
-  onOpenJson,
-  onExportJson
+  actions,
+  iconOnly = false
 }: {
-  onOpenJson: () => void;
-  onExportJson: () => void;
+  actions: { label: string; onSelect: () => void }[];
+  iconOnly?: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -1293,17 +1299,32 @@ function TripActions({
 
   return (
     <div className="action-menu">
-      <Button className="ghost-button" variant="outline" type="button" onClick={() => setIsOpen((current) => !current)}>
-        Actions
+      <Button
+        aria-expanded={isOpen}
+        aria-haspopup="menu"
+        aria-label={iconOnly ? "More actions" : undefined}
+        className={iconOnly ? "ghost-button overflow-menu-trigger" : "ghost-button"}
+        size={iconOnly ? "icon-lg" : "default"}
+        variant="outline"
+        type="button"
+        onClick={() => setIsOpen((current) => !current)}
+      >
+        {iconOnly ? <EllipsisIcon aria-hidden="true" /> : "Actions"}
       </Button>
       {isOpen ? (
-        <div className="action-menu-panel">
-          <Button className="ghost-button" variant="outline" type="button" onClick={() => runAction(onOpenJson)}>
-            Open JSON
-          </Button>
-          <Button className="ghost-button" variant="outline" type="button" onClick={() => runAction(onExportJson)}>
-            Export JSON
-          </Button>
+        <div className="action-menu-panel" role="menu">
+          {actions.map((action) => (
+            <Button
+              className="ghost-button"
+              key={action.label}
+              role="menuitem"
+              variant="outline"
+              type="button"
+              onClick={() => runAction(action.onSelect)}
+            >
+              {action.label}
+            </Button>
+          ))}
         </div>
       ) : null}
     </div>

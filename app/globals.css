@@ -1139,6 +1139,11 @@ small {
     flex-direction: column;
   }
 
+  .action-menu:has(.overflow-menu-trigger) .action-menu-panel {
+    right: auto;
+    left: 0;
+  }
+
   .sidebar-stack {
     position: static;
   }
@@ -1170,6 +1175,11 @@ small {
 
   .action-menu-panel {
     position: static;
+  }
+
+  .action-menu > .overflow-menu-trigger {
+    align-self: flex-end;
+    width: auto;
   }
 
   .inline-form {
