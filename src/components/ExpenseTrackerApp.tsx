@@ -21,7 +21,7 @@ import {
   SelectTrigger
 } from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
-import { calculateDirectSettlementBreakdown, calculateDirectSettlements, calculatePersonBalances, calculateSettlements, calculateSimplifiedSettlementBreakdown, calculateSimplifiedSettlementRoutes, getTripTotalMinor } from "@/lib/calculations";
+import { calculateDirectSettlementBreakdown, calculateDirectSettlements, calculatePersonBalances, calculateSettlements, calculateSimplifiedSettlementAllocations, calculateSimplifiedSettlementBreakdown, calculateSimplifiedSettlementRoutes, getTripTotalMinor, sliceSimplifiedSettlementAllocations } from "@/lib/calculations";
 import { decodeTripFromHash } from "@/lib/share";
 import { loadTripFromStorage, saveTripToStorage } from "@/lib/storage";
 import { formatMoney, minorToPesoInput, pesoToMinor, splitEvenly } from "@/lib/money";
@@ -1187,6 +1187,19 @@ function SimplifiedTransferExplanation({
   const receiverName = getPersonName(trip, transfer.toPersonId);
   const breakdown = calculateSimplifiedSettlementBreakdown(balances, directSettlements, settlements, transfer);
   const routeBreakdown = calculateSimplifiedSettlementRoutes(directSettlements, settlements).get(transfer);
+  const explainedRouteTotalMinor = routeBreakdown?.routes.reduce((total, route) => total + route.amountMinor, 0) ?? 0;
+  const allocations = calculateSimplifiedSettlementAllocations(directSettlements, settlements).get(transfer) ?? [];
+  const unmatchedAllocations = sliceSimplifiedSettlementAllocations(allocations, explainedRouteTotalMinor, routeBreakdown?.unmatchedMinor ?? 0);
+  const additionalDirectDebtMinor = unmatchedAllocations.reduce(
+    (total, allocation) => allocation.payerOwesPersonId === transfer.toPersonId && allocation.receiverOwedByPersonId === transfer.fromPersonId
+      ? total + allocation.amountMinor
+      : total,
+    0
+  );
+  const remainingBalanceMatches = unmatchedAllocations.filter(
+    (allocation) => allocation.payerOwesPersonId !== transfer.toPersonId || allocation.receiverOwedByPersonId !== transfer.fromPersonId
+  );
+  const directRouteIndex = routeBreakdown?.routes.findIndex((route) => route.personIds.length === 2) ?? -1;
 
   return (
     <TransferExplanationTooltip detailed id={`simplified-transfer-${transfer.fromPersonId}-${transfer.toPersonId}`} title={`Why ${personName} pays ${receiverName}`}>
@@ -1210,40 +1223,28 @@ function SimplifiedTransferExplanation({
         <span><small>{personName}&apos;s net debt</small><strong>{formatMoney(breakdown.payerDebtMinor)}</strong></span>
       </span>
       <span className="routing-explanation">
-        <strong>How those payments become one payment to {receiverName}</strong>
+        <strong>This payment combines</strong>
         {routeBreakdown?.routes.map((route, index) => {
           const names = route.personIds.map((personId) => getPersonName(trip, personId));
-
           const priorUseTotal = route.priorUses.reduce((total, use) => total + use.amountMinor, 0);
+          const amountMinor = route.amountMinor + (index === directRouteIndex ? additionalDirectDebtMinor : 0);
 
-          return route.personIds.length === 2 && priorUseTotal > 0 ? (
+          return (
             <small key={`${route.personIds.join("-")}-${index}`}>
-              {personName} originally owed {receiverName} <b>{formatMoney(route.amountMinor + priorUseTotal)}</b>. {route.priorUses.map((use, useIndex) => (
-                use.personIds[0] === transfer.fromPersonId ? (
-                  <span key={`${use.personIds.join("-")}-${useIndex}`}>{useIndex > 0 ? " Another " : " "}<b>{formatMoney(use.amountMinor)}</b> already went directly to {getPersonName(trip, use.personIds[use.personIds.length - 1])} because {receiverName} also owed {getPersonName(trip, use.personIds[use.personIds.length - 1])},</span>
-                ) : (
-                  <span key={`${use.personIds.join("-")}-${useIndex}`}>{useIndex > 0 ? " Another " : " "}<b>{formatMoney(use.amountMinor)}</b> was already covered when {getPersonName(trip, use.personIds[0])} paid {receiverName} directly instead of paying {personName} first,</span>
-                )
-              ))} leaving <b>{formatMoney(route.amountMinor)}</b> for {receiverName}.
-            </small>
-          ) : route.personIds.length === 2 ? (
-            <small key={`${route.personIds.join("-")}-${index}`}>
-              <b>{formatMoney(route.amountMinor)}</b> is what {personName} already owes {receiverName} directly.
-            </small>
-          ) : (
-            <small key={`${route.personIds.join("-")}-${index}`}>
-              <b>{formatMoney(route.amountMinor)}</b> replaces {names.slice(0, -1).map((name, nameIndex) => (
-                <span key={`${name}-${nameIndex}`}>{nameIndex > 0 ? " and " : ""}{name} paying {names[nameIndex + 1]}</span>
-              ))}. It goes straight from {personName} to {receiverName}, removing {route.personIds.length - 2} redundant {route.personIds.length - 2 === 1 ? "transaction" : "transactions"}.
+              <b>{formatMoney(amountMinor)}</b> · {route.personIds.length === 2 ? "direct debt" : names.join(" → ")}
+              {priorUseTotal > 0 ? ` (${formatMoney(priorUseTotal)} already simplified)` : null}
             </small>
           );
         })}
-        {routeBreakdown && routeBreakdown.routes.length > 1 ? (
-          <span className="routing-total"><small>Combined payment</small><b>{formatMoney(transfer.amountMinor)}</b></span>
+        {directRouteIndex === -1 && additionalDirectDebtMinor > 0 ? (
+          <small><b>{formatMoney(additionalDirectDebtMinor)}</b> · direct debt</small>
         ) : null}
-        {routeBreakdown?.unmatchedMinor ? (
-          <small><b>{formatMoney(routeBreakdown.unmatchedMinor)}</b> is matched through the group&apos;s remaining net balances.</small>
-        ) : null}
+        {remainingBalanceMatches.map((allocation, index) => (
+          <small key={`${allocation.payerOwesPersonId}-${allocation.receiverOwedByPersonId}-${index}`}>
+            <b>{formatMoney(allocation.amountMinor)}</b> · {personName}&apos;s debt to {getPersonName(trip, allocation.payerOwesPersonId)} matched with {getPersonName(trip, allocation.receiverOwedByPersonId)}&apos;s debt to {receiverName}
+          </small>
+        ))}
+        <span className="routing-total"><small>{personName} pays {receiverName}</small><b>{formatMoney(transfer.amountMinor)}</b></span>
       </span>
     </TransferExplanationTooltip>
   );

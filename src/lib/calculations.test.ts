@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateDirectSettlementBreakdown, calculateDirectSettlements, calculatePersonBalances, calculateSettlementReceipts, calculateSettlements, calculateSimplifiedSettlementBreakdown, calculateSimplifiedSettlementRoutes, getTripTotalMinor } from "@/lib/calculations";
+import { calculateDirectSettlementBreakdown, calculateDirectSettlements, calculatePersonBalances, calculateSettlementReceipts, calculateSettlements, calculateSimplifiedSettlementAllocations, calculateSimplifiedSettlementBreakdown, calculateSimplifiedSettlementRoutes, getTripTotalMinor, sliceSimplifiedSettlementAllocations } from "@/lib/calculations";
 import type { Trip } from "@/types";
 
 function tripWithExpenses(expenses: Trip["expenses"]): Trip {
@@ -336,6 +336,37 @@ describe("calculateSimplifiedSettlementRoutes", () => {
       amountMinor: 255986,
       personIds: ["m1", "m3"],
       priorUses: [{ amountMinor: 56800, personIds: ["m2", "m1", "m3"] }]
+    }]);
+  });
+});
+
+describe("calculateSimplifiedSettlementAllocations", () => {
+  it("names the original debt on both sides of a simplified payment", () => {
+    const directSettlements = [
+      { fromPersonId: "payer", toPersonId: "original-creditor", amountMinor: 10000 },
+      { fromPersonId: "payer-credit", toPersonId: "payer", amountMinor: 2000 },
+      { fromPersonId: "original-debtor", toPersonId: "receiver", amountMinor: 10000 },
+      { fromPersonId: "receiver", toPersonId: "receiver-debt", amountMinor: 2000 }
+    ];
+    const settlement = { fromPersonId: "payer", toPersonId: "receiver", amountMinor: 8000 };
+
+    expect(calculateSimplifiedSettlementAllocations(directSettlements, [settlement]).get(settlement)).toEqual([{
+      amountMinor: 8000,
+      payerOwesPersonId: "original-creditor",
+      receiverOwedByPersonId: "original-debtor"
+    }]);
+  });
+
+  it("selects only the allocation behind an unexplained remainder", () => {
+    const allocations = [
+      { amountMinor: 131140, payerOwesPersonId: "m3", receiverOwedByPersonId: "j1" },
+      { amountMinor: 20200, payerOwesPersonId: "m3", receiverOwedByPersonId: "m2" }
+    ];
+
+    expect(sliceSimplifiedSettlementAllocations(allocations, 131140, 20200)).toEqual([{
+      amountMinor: 20200,
+      payerOwesPersonId: "m3",
+      receiverOwedByPersonId: "m2"
     }]);
   });
 });

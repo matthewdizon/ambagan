@@ -185,6 +185,105 @@ export type SimplifiedSettlementRoute = {
   priorUses: Array<{ amountMinor: number; personIds: string[] }>;
 };
 
+export type SimplifiedSettlementAllocation = {
+  amountMinor: number;
+  payerOwesPersonId: string;
+  receiverOwedByPersonId: string;
+};
+
+export function calculateSimplifiedSettlementAllocations(
+  directSettlements: Settlement[],
+  settlements: Settlement[]
+): Map<Settlement, SimplifiedSettlementAllocation[]> {
+  const personIds = new Set(directSettlements.flatMap((settlement) => [settlement.fromPersonId, settlement.toPersonId]));
+  const remainingDebts = new Map<string, Array<{ personId: string; amountMinor: number }>>();
+  const remainingCredits = new Map<string, Array<{ personId: string; amountMinor: number }>>();
+
+  for (const personId of personIds) {
+    const outgoing = directSettlements
+      .filter((settlement) => settlement.fromPersonId === personId)
+      .map((settlement) => ({ personId: settlement.toPersonId, amountMinor: settlement.amountMinor }));
+    const incoming = directSettlements
+      .filter((settlement) => settlement.toPersonId === personId)
+      .map((settlement) => ({ personId: settlement.fromPersonId, amountMinor: settlement.amountMinor }));
+
+    remainingDebts.set(personId, subtractFromSegments(outgoing, incoming.reduce((total, item) => total + item.amountMinor, 0)));
+    remainingCredits.set(personId, subtractFromSegments(incoming, outgoing.reduce((total, item) => total + item.amountMinor, 0)));
+  }
+
+  const result = new Map<Settlement, SimplifiedSettlementAllocation[]>();
+
+  for (const settlement of settlements) {
+    const debts = remainingDebts.get(settlement.fromPersonId) ?? [];
+    const credits = remainingCredits.get(settlement.toPersonId) ?? [];
+    const allocations: SimplifiedSettlementAllocation[] = [];
+    let amountLeftMinor = settlement.amountMinor;
+
+    while (amountLeftMinor > 0 && debts.length > 0 && credits.length > 0) {
+      const debt = debts[0];
+      const credit = credits[0];
+      const amountMinor = Math.min(amountLeftMinor, debt.amountMinor, credit.amountMinor);
+
+      allocations.push({
+        amountMinor,
+        payerOwesPersonId: debt.personId,
+        receiverOwedByPersonId: credit.personId
+      });
+      amountLeftMinor -= amountMinor;
+      debt.amountMinor -= amountMinor;
+      credit.amountMinor -= amountMinor;
+      if (debt.amountMinor === 0) debts.shift();
+      if (credit.amountMinor === 0) credits.shift();
+    }
+
+    result.set(settlement, allocations);
+  }
+
+  return result;
+}
+
+export function sliceSimplifiedSettlementAllocations(
+  allocations: SimplifiedSettlementAllocation[],
+  offsetMinor: number,
+  amountMinor: number
+): SimplifiedSettlementAllocation[] {
+  const sliced: SimplifiedSettlementAllocation[] = [];
+  let amountToSkipMinor = offsetMinor;
+  let amountLeftMinor = amountMinor;
+
+  for (const allocation of allocations) {
+    if (amountLeftMinor === 0) break;
+
+    const skippedMinor = Math.min(amountToSkipMinor, allocation.amountMinor);
+    amountToSkipMinor -= skippedMinor;
+    const availableMinor = allocation.amountMinor - skippedMinor;
+    if (availableMinor === 0) continue;
+
+    const includedMinor = Math.min(amountLeftMinor, availableMinor);
+    sliced.push({ ...allocation, amountMinor: includedMinor });
+    amountLeftMinor -= includedMinor;
+  }
+
+  return sliced;
+}
+
+function subtractFromSegments(
+  segments: Array<{ personId: string; amountMinor: number }>,
+  amountToSubtractMinor: number
+): Array<{ personId: string; amountMinor: number }> {
+  const remaining = segments.map((segment) => ({ ...segment }));
+  let amountLeftMinor = amountToSubtractMinor;
+
+  while (amountLeftMinor > 0 && remaining.length > 0) {
+    const amountMinor = Math.min(amountLeftMinor, remaining[0].amountMinor);
+    remaining[0].amountMinor -= amountMinor;
+    amountLeftMinor -= amountMinor;
+    if (remaining[0].amountMinor === 0) remaining.shift();
+  }
+
+  return remaining;
+}
+
 export function calculateSimplifiedSettlementRoutes(
   directSettlements: Settlement[],
   settlements: Settlement[]
