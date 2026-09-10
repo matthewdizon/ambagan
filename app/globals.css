@@ -717,8 +717,11 @@ small {
 .transfer-explanation-dialog {
   width: min(520px, calc(100% - 24px));
   max-width: 520px;
+  max-height: calc(100vh - 24px);
+  max-height: calc(100svh - 24px);
   max-height: min(720px, calc(100dvh - 24px));
   overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 20px;
 }
 
@@ -1314,9 +1317,11 @@ small {
 
   .transfer-explanation-dialog {
     top: auto;
-    bottom: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
     width: calc(100% - 16px);
-    max-height: calc(100dvh - 16px);
+    max-height: calc(100vh - 16px - env(safe-area-inset-bottom));
+    max-height: calc(100svh - 16px - env(safe-area-inset-bottom));
+    max-height: calc(100dvh - 16px - env(safe-area-inset-bottom));
     translate: -50% 0;
     transform: none;
     border-radius: 16px;
