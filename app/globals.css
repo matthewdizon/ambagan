@@ -25,7 +25,7 @@
   --success: #2e9d6f;
   --success-soft: #e5f5ee;
   --shadow: 0 18px 48px rgba(31, 41, 51, 0.1);
-  --shadow-soft: 0 10px 28px rgba(31, 41, 51, 0.07);
+  --shadow-soft: 0 8px 24px rgba(31, 41, 51, 0.055);
   --foreground: #1f2933;
   --card: #ffffff;
   --card-foreground: #1f2933;
@@ -278,7 +278,7 @@ small {
 .panel,
 .loading-panel {
   border: 1px solid rgba(217, 222, 210, 0.92);
-  border-radius: 8px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.9);
   box-shadow: var(--shadow-soft);
 }
@@ -602,8 +602,9 @@ small {
 
 .settlement-group {
   border: 1px solid #b9d7cd;
-  border-radius: 8px;
+  border-radius: 12px;
   background: #fff;
+  overflow: hidden;
 }
 
 .settlement-group summary {
@@ -611,7 +612,7 @@ small {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 12px;
+  padding: 14px;
   cursor: pointer;
   list-style: none;
 }
@@ -694,11 +695,6 @@ small {
   gap: 7px;
 }
 
-.transfer-explanation {
-  position: relative;
-  display: inline-flex;
-}
-
 .why-button {
   min-height: 24px;
   border: 1px solid #b9d7cd;
@@ -718,31 +714,18 @@ small {
   transform: none;
 }
 
-.transfer-tooltip {
-  position: absolute;
-  z-index: 20;
-  left: 0;
-  bottom: calc(100% + 8px);
-  display: none;
-  width: min(390px, calc(100vw - 48px));
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: #fff;
-  box-shadow: var(--shadow-soft);
-  color: var(--text);
-  padding: 10px;
-}
-
-.transfer-tooltip.detailed {
-  width: min(480px, calc(100vw - 48px));
-  max-height: min(620px, 75vh);
+.transfer-explanation-dialog {
+  width: min(520px, calc(100% - 24px));
+  max-width: 520px;
+  max-height: min(720px, calc(100dvh - 24px));
   overflow-y: auto;
+  padding: 20px;
 }
 
-.transfer-explanation:hover .transfer-tooltip,
-.transfer-explanation:focus-within .transfer-tooltip {
+.transfer-explanation-content {
   display: grid;
-  gap: 8px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .transfer-equation {
@@ -1040,13 +1023,25 @@ small {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   background: #fff;
-  padding: 14px;
+  padding: 16px;
 }
 
-.expense-item > div:first-child {
+.expense-main {
   min-width: 0;
+}
+
+.expense-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.expense-mobile-total {
+  display: none;
+  white-space: nowrap;
 }
 
 .expense-item h3 {
@@ -1066,12 +1061,20 @@ small {
 }
 
 .share-list span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
   border-radius: 999px;
   background: var(--surface-muted);
   padding: 6px 10px;
   color: var(--text-muted);
   font-size: 0.86rem;
   font-weight: 700;
+}
+
+.share-list span small {
+  color: inherit;
+  font-size: inherit;
 }
 
 .expense-breakdown,
@@ -1143,7 +1146,7 @@ small {
 
 @media (max-width: 640px) {
   .app-shell {
-    padding: 14px;
+    padding: 10px;
   }
 
   .topbar,
@@ -1176,15 +1179,87 @@ small {
 
   .trip-header,
   .empty-hero {
-    padding: 24px;
+    padding: 20px;
   }
 
   .expense-item {
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+    padding: 14px;
   }
 
   .expense-actions {
+    width: 100%;
     justify-items: stretch;
+  }
+
+  .expense-actions > strong {
+    display: none;
+  }
+
+  .expense-mobile-total {
+    display: block;
+  }
+
+  .expense-title-row h3 {
+    min-width: 0;
+  }
+
+  .expense-item p {
+    font-size: 0.88rem;
+    line-height: 1.45;
+  }
+
+  .expense-actions .compact-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .share-list {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .share-list span {
+    display: grid;
+    min-width: 0;
+    gap: 1px;
+    border-radius: 9px;
+    padding: 8px 9px;
+  }
+
+  .share-list span small {
+    overflow: hidden;
+    font-size: 0.72rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .share-list span strong {
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+
+  .settlement-group summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 14px 12px;
+  }
+
+  .recipient-identity {
+    gap: 9px;
+  }
+
+  .recipient-identity small,
+  .recipient-total small {
+    font-size: 0.7rem;
+  }
+
+  .recipient-total strong {
+    font-size: 0.92rem;
   }
 
   .settlement-actions {
@@ -1209,7 +1284,39 @@ small {
   }
 
   .settlement-breakdown {
-    padding-left: 12px;
+    padding: 6px 12px 12px;
+  }
+
+  .breakdown-row,
+  .breakdown-total {
+    gap: 8px;
+    padding: 10px 0;
+  }
+
+  .breakdown-row {
+    font-size: 0.82rem;
+  }
+
+  .breakdown-row > strong,
+  .breakdown-total > strong {
+    white-space: nowrap;
+  }
+
+  .transfer-explanation-dialog {
+    top: auto;
+    bottom: 8px;
+    width: calc(100% - 16px);
+    max-height: calc(100dvh - 16px);
+    translate: -50% 0;
+    transform: none;
+    border-radius: 16px;
+    padding: 18px;
+  }
+
+  .transfer-equation {
+    flex-wrap: wrap;
+    justify-content: center;
+    overflow-x: visible;
   }
 
   .submit-button {

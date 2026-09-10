@@ -1079,8 +1079,11 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                 <div className="expense-list">
                   {filteredExpenses.map((expense) => (
                     <article className="expense-item" key={expense.id}>
-                      <div>
-                        <h3>{expense.description}</h3>
+                      <div className="expense-main">
+                        <div className="expense-title-row">
+                          <h3>{expense.description}</h3>
+                          <strong className="expense-mobile-total">{formatMoney(expense.amountMinor)}</strong>
+                        </div>
                         <p>
                           {formatExpenseDate(getExpenseDate(expense))} · Paid by {getPersonName(selectedTrip, expense.paidByPersonId)} · {getSplitTypeLabel(expense.splitType)}
                         </p>
@@ -1241,14 +1244,26 @@ function SimplifiedTransferExplanation({
 }
 
 function TransferExplanationTooltip({ children, detailed = false, id, title = "Why this amount?" }: { children: React.ReactNode; detailed?: boolean; id: string; title?: string }) {
+  const [isOpen, setIsOpen] = useState(false);
+
   return (
-    <span className="transfer-explanation">
-      <button aria-describedby={id} className="why-button" type="button">Why?</button>
-      <span className={detailed ? "transfer-tooltip detailed" : "transfer-tooltip"} id={id} role="tooltip">
-        <strong>{title}</strong>
-        {detailed ? children : <span className="transfer-equation">{children}</span>}
-      </span>
-    </span>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <button aria-haspopup="dialog" className="why-button" type="button" onClick={() => setIsOpen(true)}>Why?</button>
+      <DialogContent className="transfer-explanation-dialog" id={id}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>
+            {detailed ? "See how the simplified payment was calculated." : "See how the remaining balance was calculated."}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="transfer-explanation-content">
+          {detailed ? children : <span className="transfer-equation">{children}</span>}
+        </div>
+        <DialogFooter>
+          <DialogClose render={<Button type="button" variant="outline" />}>Done</DialogClose>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1417,7 +1432,8 @@ function ExpenseBreakdown({ expense, people }: { expense: Expense; people: Perso
       <div className="share-list">
         {expense.shares.map((share) => (
           <span key={`${expense.id}-${share.personId}`}>
-            {personName(share.personId)} total: {formatMoney(share.amountMinor)}
+            <small>{personName(share.personId)}</small>
+            <strong>{formatMoney(share.amountMinor)}</strong>
           </span>
         ))}
       </div>
