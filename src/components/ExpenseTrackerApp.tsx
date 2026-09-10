@@ -20,11 +20,11 @@ import {
   SelectTrigger
 } from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
-import { calculatePersonBalances, calculateSettlementReceipts, calculateSettlements, getTripTotalMinor } from "@/lib/calculations";
+import { calculateDirectSettlements, calculatePersonBalances, calculateSettlements, getTripTotalMinor } from "@/lib/calculations";
 import { decodeTripFromHash } from "@/lib/share";
 import { loadTripFromStorage, saveTripToStorage } from "@/lib/storage";
 import { formatMoney, minorToPesoInput, pesoToMinor, splitEvenly } from "@/lib/money";
-import type { Expense, ExpenseLineItem, ExpenseShare, Payment, Person, SplitType, Trip } from "@/types";
+import type { Expense, ExpenseLineItem, ExpenseShare, Payment, Person, Settlement, SplitType, Trip } from "@/types";
 import { toast } from "sonner";
 
 type ExpenseLineItemDraft = {
@@ -327,6 +327,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
   const [draftError, setDraftError] = useState<ExpenseDraftError | null>(null);
   const [paymentDraft, setPaymentDraft] = useState<PaymentDraft>(emptyPaymentDraft);
   const [paymentDraftError, setPaymentDraftError] = useState<PaymentDraftError | null>(null);
+  const [simplifyTransfers, setSimplifyTransfers] = useState(true);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
@@ -370,7 +371,21 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
 
   const balances = useMemo(() => (selectedTrip ? calculatePersonBalances(selectedTrip) : []), [selectedTrip]);
   const settlements = useMemo(() => calculateSettlements(balances), [balances]);
-  const settlementReceipts = useMemo(() => calculateSettlementReceipts(settlements), [settlements]);
+  const directSettlements = useMemo(() => (selectedTrip ? calculateDirectSettlements(selectedTrip) : []), [selectedTrip]);
+  const visibleSettlements = simplifyTransfers ? settlements : directSettlements;
+  const settlementGroups = useMemo(() => {
+    const groups = new Map<string, Settlement[]>();
+
+    for (const settlement of visibleSettlements) {
+      groups.set(settlement.toPersonId, [...(groups.get(settlement.toPersonId) ?? []), settlement]);
+    }
+
+    return Array.from(groups, ([personId, transfers]) => ({
+      personId,
+      transfers,
+      amountMinor: transfers.reduce((total, transfer) => total + transfer.amountMinor, 0)
+    }));
+  }, [visibleSettlements]);
   const tripTotal = selectedTrip ? getTripTotalMinor(selectedTrip) : 0;
   const payments = selectedTrip?.payments ?? [];
   const tripMetrics = selectedTrip
@@ -881,39 +896,86 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
               </div>
 
               <div className="panel">
-                <div className="panel-heading">
+                <div className="panel-heading settlement-heading">
                   <div>
                     <p className="eyebrow">Settle up</p>
-                    <h2>Settlements</h2>
+                    <h2>{simplifyTransfers ? "Simplified settlements" : "Direct settlements"}</h2>
+                    <p className="panel-description">
+                      {simplifyTransfers ? "Balances are combined to clear debts with fewer payments." : "Everyone pays the people who originally covered their expenses."}
+                    </p>
                   </div>
+                  <label className="transfer-toggle">
+                    <span>
+                      <strong>Simplify transfers</strong>
+                      <small>{simplifyTransfers ? "Fewest payments" : "Pay original spenders"}</small>
+                    </span>
+                    <button
+                      aria-checked={simplifyTransfers}
+                      aria-label="Simplify transfers"
+                      className="switch-control"
+                      role="switch"
+                      type="button"
+                      onClick={() => setSimplifyTransfers((current) => !current)}
+                    >
+                      <span />
+                    </button>
+                  </label>
                 </div>
                 {!isReadOnly ? (
-                  <PaymentForm
-                    draft={paymentDraft}
-                    error={paymentDraftError}
-                    people={selectedTrip.people}
-                    onSubmit={handleSubmitPayment}
-                    onDraftChange={updatePaymentDraft}
-                  />
+                  <div className="payment-section">
+                    <div>
+                      <h3>Record a payment</h3>
+                      <p className="panel-description">Log money that has already been sent.</p>
+                    </div>
+                    <PaymentForm
+                      draft={paymentDraft}
+                      error={paymentDraftError}
+                      people={selectedTrip.people}
+                      onSubmit={handleSubmitPayment}
+                      onDraftChange={updatePaymentDraft}
+                    />
+                  </div>
                 ) : null}
-                {settlements.length === 0 ? (
+                {visibleSettlements.length > 0 ? (
+                  <div className="transfer-overview">
+                    <h3>Who gets paid</h3>
+                    <span className="transfer-count">{visibleSettlements.length} {visibleSettlements.length === 1 ? "payment" : "payments"}</span>
+                  </div>
+                ) : null}
+                {visibleSettlements.length === 0 ? (
                   <div className="empty-state">No one owes anything yet.</div>
                 ) : (
-                  <div className="settlement-list">
-                    {settlements.map((settlement) => (
-                      <div className="settlement-row" key={`${settlement.fromPersonId}-${settlement.toPersonId}-${settlement.amountMinor}`}>
-                        <span>{getPersonName(selectedTrip, settlement.fromPersonId)} pays {getPersonName(selectedTrip, settlement.toPersonId)}</span>
-                        <strong>{formatMoney(settlement.amountMinor)}</strong>
-                      </div>
-                    ))}
-                    {Object.entries(settlementReceipts).map(([personId, amountMinor]) => (
-                      <div className="settlement-row settlement-summary" key={`receipt-${personId}`}>
-                        <span>{getPersonName(selectedTrip, personId)} gets back</span>
-                        <strong>{formatMoney(amountMinor)}</strong>
-                      </div>
+                  <div className="settlement-groups">
+                    {settlementGroups.map((group) => (
+                      <details className="settlement-group" key={group.personId}>
+                        <summary>
+                          <span className="recipient-identity">
+                            <PersonAvatar name={getPersonName(selectedTrip, group.personId)} />
+                            <span><strong>{getPersonName(selectedTrip, group.personId)}</strong><small>gets back from {group.transfers.length} {group.transfers.length === 1 ? "person" : "people"}</small></span>
+                          </span>
+                          <span className="recipient-total">
+                            <strong>{formatMoney(group.amountMinor)}</strong>
+                            <small className="show-breakdown">View breakdown</small>
+                            <small className="hide-breakdown">Hide breakdown</small>
+                          </span>
+                        </summary>
+                        <div className="settlement-breakdown">
+                          {group.transfers.map((transfer) => (
+                            <div className="breakdown-row" key={`${transfer.fromPersonId}-${transfer.toPersonId}-${transfer.amountMinor}`}>
+                              <span>{getPersonName(selectedTrip, transfer.fromPersonId)} pays</span>
+                              <strong>{formatMoney(transfer.amountMinor)}</strong>
+                            </div>
+                          ))}
+                          <div className="breakdown-total">
+                            <span>Total received</span>
+                            <strong>{formatMoney(group.amountMinor)}</strong>
+                          </div>
+                        </div>
+                      </details>
                     ))}
                   </div>
                 )}
+                <div className="settlement-section-heading recorded-heading"><h3>Payment history</h3></div>
                 {payments.length === 0 ? (
                   <div className="empty-state">No payments recorded yet.</div>
                 ) : (

@@ -354,6 +354,7 @@ small {
 
 .two-column {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
 }
 
 .metric {
@@ -483,6 +484,201 @@ small {
   white-space: nowrap;
 }
 
+.settlement-heading {
+  align-items: flex-start;
+}
+
+.panel-description {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+.transfer-toggle {
+  display: flex;
+  grid-template-columns: none;
+  align-items: center;
+  gap: 12px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.transfer-toggle > span:first-child {
+  display: grid;
+  gap: 1px;
+  text-align: right;
+}
+
+.transfer-toggle small {
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.switch-control {
+  position: relative;
+  width: 44px;
+  min-height: 24px;
+  flex: 0 0 44px;
+  border-radius: 999px;
+  background: var(--border-strong);
+  padding: 3px;
+}
+
+.switch-control:hover:not(:disabled) {
+  background: #9caf9f;
+  transform: none;
+}
+
+.switch-control[aria-checked="true"] {
+  background: var(--primary);
+}
+
+.switch-control span {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(31, 41, 51, 0.24);
+  transition: transform 160ms ease;
+}
+
+.switch-control[aria-checked="true"] span {
+  transform: translateX(20px);
+}
+
+.payment-section {
+  display: grid;
+  gap: 10px;
+  border-block: 1px solid var(--border);
+  padding: 16px 0;
+}
+
+.settlement-section-heading,
+.transfer-overview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.transfer-overview {
+  margin-top: 2px;
+}
+
+.recorded-heading {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+
+.transfer-count {
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  padding: 5px 9px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.settlement-groups {
+  display: grid;
+  gap: 8px;
+}
+
+.settlement-group {
+  border: 1px solid #b9d7cd;
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.settlement-group summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.settlement-group summary::-webkit-details-marker {
+  display: none;
+}
+
+.settlement-group summary:hover {
+  background: var(--success-soft);
+}
+
+.settlement-group[open] summary {
+  border-bottom: 1px solid #cde1d8;
+  background: var(--success-soft);
+}
+
+.recipient-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.recipient-identity > span:last-child,
+.recipient-total {
+  display: grid;
+  gap: 1px;
+}
+
+.recipient-identity small,
+.recipient-total small {
+  font-size: 0.75rem;
+}
+
+.recipient-total {
+  justify-items: end;
+}
+
+.recipient-total strong {
+  white-space: nowrap;
+}
+
+.hide-breakdown,
+.settlement-group[open] .show-breakdown {
+  display: none;
+}
+
+.settlement-group[open] .hide-breakdown {
+  display: block;
+}
+
+.settlement-breakdown {
+  display: grid;
+  padding: 4px 12px 10px 56px;
+}
+
+.breakdown-row,
+.breakdown-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.breakdown-row {
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.86rem;
+}
+
+.breakdown-total {
+  padding-bottom: 2px;
+  color: var(--primary-dark);
+  font-weight: 800;
+}
+
 .settlement-actions {
   display: flex;
   align-items: center;
@@ -537,10 +733,9 @@ small {
   grid-template-columns: repeat(4, minmax(120px, 1fr)) auto;
   align-items: end;
   gap: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--surface-muted);
-  padding: 12px;
+  border: 0;
+  background: transparent;
+  padding: 0;
 }
 
 .expense-dialog {
@@ -748,6 +943,26 @@ small {
   .settlement-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .settlement-heading,
+  .settlement-section-heading,
+  .transfer-overview {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .transfer-toggle {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .transfer-toggle > span:first-child {
+    text-align: left;
+  }
+
+  .settlement-breakdown {
+    padding-left: 12px;
   }
 
   .submit-button {

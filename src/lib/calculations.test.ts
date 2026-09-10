@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculatePersonBalances, calculateSettlementReceipts, calculateSettlements, getTripTotalMinor } from "@/lib/calculations";
+import { calculateDirectSettlements, calculatePersonBalances, calculateSettlementReceipts, calculateSettlements, getTripTotalMinor } from "@/lib/calculations";
 import type { Trip } from "@/types";
 
 function tripWithExpenses(expenses: Trip["expenses"]): Trip {
@@ -227,6 +227,71 @@ describe("calculateSettlements", () => {
         { personId: "b", paidMinor: 0, shareMinor: 0, balanceMinor: 0 }
       ])
     ).toEqual([]);
+  });
+});
+
+describe("calculateDirectSettlements", () => {
+  it("keeps debts between the original payer and participants", () => {
+    const trip = tripWithExpenses([
+      {
+        id: "expense_1",
+        description: "Dinner",
+        amountMinor: 90000,
+        paidByPersonId: "a",
+        splitType: "equal",
+        createdAt: "2026-07-20T00:00:00.000Z",
+        shares: [
+          { personId: "a", amountMinor: 30000 },
+          { personId: "b", amountMinor: 30000 },
+          { personId: "c", amountMinor: 30000 }
+        ]
+      },
+      {
+        id: "expense_2",
+        description: "Taxi",
+        amountMinor: 30000,
+        paidByPersonId: "b",
+        splitType: "equal",
+        createdAt: "2026-07-20T00:00:00.000Z",
+        shares: [
+          { personId: "a", amountMinor: 10000 },
+          { personId: "b", amountMinor: 10000 },
+          { personId: "c", amountMinor: 10000 }
+        ]
+      }
+    ]);
+
+    expect(calculateDirectSettlements(trip)).toEqual([
+      { fromPersonId: "b", toPersonId: "a", amountMinor: 20000 },
+      { fromPersonId: "c", toPersonId: "a", amountMinor: 30000 },
+      { fromPersonId: "c", toPersonId: "b", amountMinor: 10000 }
+    ]);
+  });
+
+  it("subtracts recorded payments from the matching direct debt", () => {
+    const trip = {
+      ...tripWithExpenses([
+        {
+          id: "expense_1",
+          description: "Dinner",
+          amountMinor: 90000,
+          paidByPersonId: "a",
+          splitType: "equal" as const,
+          createdAt: "2026-07-20T00:00:00.000Z",
+          shares: [
+            { personId: "a", amountMinor: 30000 },
+            { personId: "b", amountMinor: 30000 },
+            { personId: "c", amountMinor: 30000 }
+          ]
+        }
+      ]),
+      payments: [{ id: "payment_1", fromPersonId: "b", toPersonId: "a", amountMinor: 10000, createdAt: "2026-07-20T00:00:00.000Z" }]
+    };
+
+    expect(calculateDirectSettlements(trip)).toEqual([
+      { fromPersonId: "b", toPersonId: "a", amountMinor: 20000 },
+      { fromPersonId: "c", toPersonId: "a", amountMinor: 30000 }
+    ]);
   });
 });
 

@@ -87,6 +87,36 @@ export function calculateSettlements(balances: PersonBalance[]): Settlement[] {
   return settlements;
 }
 
+export function calculateDirectSettlements(trip: Trip): Settlement[] {
+  const pairBalances = new Map<string, number>();
+
+  function addDebt(fromPersonId: string, toPersonId: string, amountMinor: number) {
+    if (fromPersonId === toPersonId || amountMinor === 0) return;
+
+    const [firstPersonId, secondPersonId] = [fromPersonId, toPersonId].sort();
+    const key = `${firstPersonId}:${secondPersonId}`;
+    const signedAmount = fromPersonId === firstPersonId ? amountMinor : -amountMinor;
+    pairBalances.set(key, (pairBalances.get(key) ?? 0) + signedAmount);
+  }
+
+  for (const expense of trip.expenses) {
+    for (const share of expense.shares) {
+      addDebt(share.personId, expense.paidByPersonId, share.amountMinor);
+    }
+  }
+
+  for (const payment of trip.payments ?? []) {
+    addDebt(payment.fromPersonId, payment.toPersonId, -payment.amountMinor);
+  }
+
+  return Array.from(pairBalances, ([pair, amountMinor]) => {
+    const [firstPersonId, secondPersonId] = pair.split(":");
+    return amountMinor > 0
+      ? { fromPersonId: firstPersonId, toPersonId: secondPersonId, amountMinor }
+      : { fromPersonId: secondPersonId, toPersonId: firstPersonId, amountMinor: Math.abs(amountMinor) };
+  }).filter((settlement) => settlement.amountMinor > 0);
+}
+
 export function calculateSettlementReceipts(settlements: Settlement[]): Record<string, number> {
   return settlements.reduce<Record<string, number>>((totals, settlement) => {
     totals[settlement.toPersonId] = (totals[settlement.toPersonId] ?? 0) + settlement.amountMinor;
