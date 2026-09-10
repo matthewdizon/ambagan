@@ -1256,7 +1256,10 @@ function TransferExplanationTooltip({ children, detailed = false, id, title = "W
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <button aria-haspopup="dialog" className="why-button" type="button" onClick={() => setIsOpen(true)}>Why?</button>
-      <DialogContent className="transfer-explanation-dialog" id={id}>
+      <DialogContent
+        className="max-h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-[520px] overflow-y-auto p-5"
+        id={id}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
