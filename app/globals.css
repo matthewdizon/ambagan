@@ -1316,13 +1316,14 @@ small {
   }
 
   .transfer-explanation-dialog {
-    top: auto;
+    top: max(8px, env(safe-area-inset-top));
+    right: 8px;
     bottom: max(8px, env(safe-area-inset-bottom));
-    width: calc(100% - 16px);
-    max-height: calc(100vh - 16px - env(safe-area-inset-bottom));
-    max-height: calc(100svh - 16px - env(safe-area-inset-bottom));
-    max-height: calc(100dvh - 16px - env(safe-area-inset-bottom));
-    translate: -50% 0;
+    left: 8px;
+    width: auto;
+    max-width: none;
+    max-height: none;
+    translate: none;
     transform: none;
     border-radius: 16px;
     padding: 18px;
