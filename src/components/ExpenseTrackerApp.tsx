@@ -326,6 +326,7 @@ function validatePaymentDraft(draft: PaymentDraft): PaymentDraftError | null {
 
 export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedTrip?: Trip | null }) {
   const [isReady, setIsReady] = useState(false);
+  const [mobileSection, setMobileSection] = useState("expenses");
   const [isSharing, setIsSharing] = useState(false);
   const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(false);
   const [trip, setTrip] = useState<Trip | null>(null);
@@ -851,7 +852,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
 
       <div className="workspace">
         {selectedTrip ? (
-          <section className="trip-panel">
+          <section className="trip-panel" data-mobile-section={mobileSection}>
             <div className="trip-header">
               <div className="trip-title-block">
                 <p className="eyebrow">{isReadOnly ? "Shared read-only snapshot" : "Current ambagan"}</p>
@@ -883,7 +884,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                     </Button>
                     <Button variant="outline" className="ghost-button" type="button" onClick={handleCopyShareLink} disabled={isSharing}>
                       {isSharing ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Share2 aria-hidden="true" />}
-                      {isSharing ? "Creating link…" : "Share ambagan"}
+                      <span className="max-[640px]:hidden">{isSharing ? "Creating link…" : "Share ambagan"}</span><span className="min-[641px]:hidden">{isSharing ? "Sharing…" : "Share"}</span>
                     </Button>
                     <TripActions
                       actions={[
@@ -902,9 +903,14 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
               ))}
             </section>
 
+            <nav aria-label="Group sections" className="sticky top-0 z-20 flex gap-1 rounded-xl border border-border bg-background/95 p-1 backdrop-blur-sm min-[641px]:hidden">
+              {["expenses", "balances", "people"].map((section) => (
+                <Button key={section} type="button" variant={mobileSection === section ? "secondary" : "ghost"} aria-pressed={mobileSection === section} className="min-h-11 flex-1 capitalize" onClick={() => setMobileSection(section)}>{section}</Button>
+              ))}
+            </nav>
             <section className="two-column overview-grid">
               <div className="sidebar-stack">
-                <div className="panel">
+                <div className="panel" data-mobile-panel="people">
                 <div className="panel-heading">
                   <div>
                     <p className="eyebrow">Group</p>
@@ -938,7 +944,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                 </div>
                 </div>
 
-                <div className="panel balance-panel">
+                <div className="panel balance-panel" data-mobile-panel="balances">
                   <div className="panel-heading">
                     <div>
                       <p className="eyebrow">Running totals</p>
@@ -969,14 +975,14 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
               </div>
 
               <div className="main-stack">
-                <section className="panel">
+                <section className="panel" data-mobile-panel="expenses">
               <div className="panel-heading">
                 <div>
                   <p className="eyebrow">Ledger</p>
                   <h2>Expenses</h2>
                 </div>
                 {!isReadOnly ? (
-                  <Button type="button" onClick={openAddExpenseDialog} disabled={selectedTrip.people.length === 0}>
+                  <Button className="max-[640px]:fixed max-[640px]:bottom-[max(1rem,env(safe-area-inset-bottom))] max-[640px]:right-4 max-[640px]:z-30 max-[640px]:min-h-12 max-[640px]:rounded-full max-[640px]:px-5 max-[640px]:shadow-lg" type="button" onClick={openAddExpenseDialog} disabled={selectedTrip.people.length === 0}>
                     <Plus aria-hidden="true" /> Add ambag
                   </Button>
                 ) : null}
@@ -1035,7 +1041,10 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                         <p>
                           {formatExpenseDate(getExpenseDate(expense))} · Paid by {getPersonName(selectedTrip, expense.paidByPersonId)} · {getSplitTypeLabel(expense.splitType)}
                         </p>
-                        <ExpenseBreakdown expense={expense} people={selectedTrip.people} />
+                        <details className="mt-2">
+                          <summary className="cursor-pointer py-2 text-xs font-semibold text-primary">Split details</summary>
+                          <ExpenseBreakdown expense={expense} people={selectedTrip.people} />
+                        </details>
                       </div>
                       <div className="expense-actions">
                         <strong><CurrencyDisplay currency={getCurrency(expense)} amountMinor={expense.amountMinor} /></strong>
@@ -1057,7 +1066,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                 </div>
               )}
                 </section>
-                <div className="panel">
+                <div className="panel" data-mobile-panel="balances">
                 <div className="panel-heading settlement-heading">
                   <div>
                     <p className="eyebrow">Settle up</p>

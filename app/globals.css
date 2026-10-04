@@ -1172,7 +1172,7 @@ small {
   }
 
   .app-shell {
-    padding: 16px;
+    padding: 16px 16px calc(88px + env(safe-area-inset-bottom));
   }
 
   .topbar,
@@ -1195,7 +1195,7 @@ small {
   }
 
   .action-menu-panel {
-    position: static;
+    position: absolute;
   }
 
   .action-menu > .overflow-menu-trigger {
@@ -1342,6 +1342,43 @@ small {
   .submit-button {
     justify-self: stretch;
   }
+
+  nav[aria-label="Group sections"] button { background: transparent; color: var(--text-muted); }
+  nav[aria-label="Group sections"] button[aria-pressed="true"] { background: var(--primary-soft); color: var(--primary-dark); }
+  .header-actions > button { padding-inline: 12px; }
+  .topbar { margin-bottom: 12px; align-items: flex-start; }
+  .brand-button { min-height: 40px; }
+  .trip-panel { gap: 14px; }
+  .trip-header { gap: 12px; }
+  .trip-header > div:first-child { gap: 6px; }
+  .trip-title-block > p:last-child { font-size: 0.85rem; line-height: 1.5; }
+  .header-actions { flex-direction: row; align-items: center; width: 100%; }
+  .header-actions .action-menu { width: auto; margin-left: auto; }
+  .header-actions .action-menu-panel { right: 0; left: auto; width: 180px; }
+  .metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  .metric { padding: 12px; gap: 5px; }
+  .metric strong { font-size: clamp(0.85rem, 4vw, 1.1rem); }
+  .metric small { display: none; }
+  .metric:first-child { padding: 16px; }
+  .metric:first-child strong { font-size: 1.5rem; line-height: 1.25; }
+  .metric span { font-size: 0.65rem; }
+  .panel { padding: 14px; min-width: 0; }
+  .overview-grid, .main-stack, .sidebar-stack { gap: 0; min-width: 0; }
+  .trip-panel[data-mobile-section="expenses"] .sidebar-stack,
+  .trip-panel[data-mobile-section="people"] .main-stack,
+  .trip-panel[data-mobile-section="expenses"] [data-mobile-panel="balances"],
+  .trip-panel[data-mobile-section="balances"] [data-mobile-panel="people"],
+  .trip-panel[data-mobile-section="balances"] [data-mobile-panel="expenses"],
+  .trip-panel[data-mobile-section="people"] [data-mobile-panel="balances"] { display: none; }
+  .trip-panel[data-mobile-section="balances"] .overview-grid { gap: 14px; }
+  .expense-title-row { flex-direction: column; gap: 4px; }
+  .expense-mobile-total { font-size: 1rem; color: var(--primary-dark); }
+  .expense-item { padding: 14px 0; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; }
+  .expense-actions .compact-actions { display: flex; justify-content: flex-end; }
+  .expense-actions button { min-height: 44px; }
+  .filter-bar { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
+  input, select, [data-slot="select-trigger"] { font-size: 16px; min-width: 0; }
+  .expense-dialog { max-height: calc(100dvh - 1rem); max-width: calc(100% - 1rem); padding: 16px; }
 }
 
 @theme inline {
