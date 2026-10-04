@@ -1,3 +1,4 @@
+import { hasValidTripCurrencies } from "@/lib/money";
 import type { Trip } from "@/types";
 
 const STORAGE_KEY = "simple-expense-tracker:v1";
@@ -20,7 +21,7 @@ export function loadTripFromStorage(): Trip | null {
     const currentRaw = window.localStorage.getItem(CURRENT_STORAGE_KEY);
     if (currentRaw) {
       const parsed = JSON.parse(currentRaw) as StoredCurrentTrip;
-      if (parsed.version === 2 && parsed.trip) return parsed.trip;
+      if (parsed.version === 2 && parsed.trip && hasValidTripCurrencies(parsed.trip)) return parsed.trip;
     }
 
     const legacyRaw = window.localStorage.getItem(STORAGE_KEY);
@@ -29,7 +30,8 @@ export function loadTripFromStorage(): Trip | null {
     const parsed = JSON.parse(legacyRaw) as StoredTrips;
     if (parsed.version !== 1 || !Array.isArray(parsed.trips)) return null;
 
-    return parsed.trips[0] ?? null;
+    const trip = parsed.trips[0];
+    return trip && hasValidTripCurrencies(trip) ? trip : null;
   } catch {
     return null;
   }

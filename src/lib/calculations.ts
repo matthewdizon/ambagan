@@ -1,6 +1,26 @@
-import type { PersonBalance, Settlement, Trip } from "@/types";
+import { filterTripByCurrency, getCurrency, getTripCurrencies } from "@/lib/money";
+import type { Currency, PersonBalance, Settlement, Trip } from "@/types";
+
+function calculateTripByCurrency<T>(trip: Trip, calculate: (trip: Trip) => T[]): Array<T & { currency: Currency }> {
+  return getTripCurrencies(trip).flatMap((currency) =>
+    calculate(filterTripByCurrency(trip, currency)).map((result) => ({ ...result, currency }))
+  );
+}
 
 export function calculatePersonBalances(trip: Trip): PersonBalance[] {
+  return calculateTripByCurrency(trip, calculateSingleCurrencyBalances);
+}
+
+export function calculateSettlements(balances: PersonBalance[]): Settlement[] {
+  const currencies = [...new Set(balances.map(getCurrency))];
+  return currencies.flatMap((currency) => calculateSingleCurrencySettlements(balances.filter((balance) => getCurrency(balance) === currency)).map((settlement) => ({ ...settlement, currency })));
+}
+
+export function calculateDirectSettlements(trip: Trip): Settlement[] {
+  return calculateTripByCurrency(trip, calculateSingleCurrencyDirectSettlements);
+}
+
+function calculateSingleCurrencyBalances(trip: Trip): PersonBalance[] {
   const balances = new Map<string, PersonBalance>();
 
   for (const person of trip.people) {
@@ -43,7 +63,7 @@ export function calculatePersonBalances(trip: Trip): PersonBalance[] {
   return trip.people.map((person) => balances.get(person.id)).filter(Boolean) as PersonBalance[];
 }
 
-export function calculateSettlements(balances: PersonBalance[]): Settlement[] {
+function calculateSingleCurrencySettlements(balances: PersonBalance[]): Settlement[] {
   const debtors = balances
     .filter((balance) => balance.balanceMinor < 0)
     .map((balance) => ({
@@ -87,7 +107,7 @@ export function calculateSettlements(balances: PersonBalance[]): Settlement[] {
   return settlements;
 }
 
-export function calculateDirectSettlements(trip: Trip): Settlement[] {
+function calculateSingleCurrencyDirectSettlements(trip: Trip): Settlement[] {
   const pairBalances = new Map<string, number>();
 
   function addDebt(fromPersonId: string, toPersonId: string, amountMinor: number) {
@@ -118,6 +138,7 @@ export function calculateDirectSettlements(trip: Trip): Settlement[] {
 }
 
 export function calculateDirectSettlementBreakdown(trip: Trip, settlement: Settlement) {
+  trip = filterTripByCurrency(trip, getCurrency(settlement));
   let owedToReceiverMinor = 0;
   let receiverOwedBackMinor = 0;
 
@@ -152,6 +173,10 @@ export function calculateSimplifiedSettlementBreakdown(
   settlements: Settlement[],
   settlement: Settlement
 ) {
+  const currency = getCurrency(settlement);
+  balances = balances.filter((item) => getCurrency(item) === currency);
+  directSettlements = directSettlements.filter((item) => getCurrency(item) === currency);
+  settlements = settlements.filter((item) => getCurrency(item) === currency);
   const outgoingDebts = directSettlements.filter((item) => item.fromPersonId === settlement.fromPersonId);
   const incomingDebts = directSettlements.filter((item) => item.toPersonId === settlement.fromPersonId);
   const outgoingTotalMinor = outgoingDebts.reduce((total, item) => total + item.amountMinor, 0);
@@ -191,7 +216,21 @@ export type SimplifiedSettlementAllocation = {
   receiverOwedByPersonId: string;
 };
 
-export function calculateSimplifiedSettlementAllocations(
+function calculateDetailsByCurrency<T>(directSettlements: Settlement[], settlements: Settlement[], calculate: (direct: Settlement[], simplified: Settlement[]) => Map<Settlement, T>): Map<Settlement, T> {
+  const result = new Map<Settlement, T>();
+  for (const currency of new Set(settlements.map(getCurrency))) {
+    for (const [settlement, details] of calculate(directSettlements.filter((item) => getCurrency(item) === currency), settlements.filter((item) => getCurrency(item) === currency))) {
+      result.set(settlement, details);
+    }
+  }
+  return result;
+}
+
+export function calculateSimplifiedSettlementAllocations(directSettlements: Settlement[], settlements: Settlement[]): ReturnType<typeof calculateSimplifiedSettlementAllocationsSingleCurrency> {
+  return calculateDetailsByCurrency(directSettlements, settlements, calculateSimplifiedSettlementAllocationsSingleCurrency);
+}
+
+function calculateSimplifiedSettlementAllocationsSingleCurrency(
   directSettlements: Settlement[],
   settlements: Settlement[]
 ): Map<Settlement, SimplifiedSettlementAllocation[]> {
@@ -284,7 +323,11 @@ function subtractFromSegments(
   return remaining;
 }
 
-export function calculateSimplifiedSettlementRoutes(
+export function calculateSimplifiedSettlementRoutes(directSettlements: Settlement[], settlements: Settlement[]): ReturnType<typeof calculateSimplifiedSettlementRoutesSingleCurrency> {
+  return calculateDetailsByCurrency(directSettlements, settlements, calculateSimplifiedSettlementRoutesSingleCurrency);
+}
+
+function calculateSimplifiedSettlementRoutesSingleCurrency(
   directSettlements: Settlement[],
   settlements: Settlement[]
 ): Map<Settlement, { routes: SimplifiedSettlementRoute[]; unmatchedMinor: number }> {
@@ -340,13 +383,13 @@ function findSettlementPath(edges: Settlement[], fromPersonId: string, toPersonI
   return null;
 }
 
-export function calculateSettlementReceipts(settlements: Settlement[]): Record<string, number> {
-  return settlements.reduce<Record<string, number>>((totals, settlement) => {
+export function calculateSettlementReceipts(settlements: Settlement[], currency = "PHP"): Record<string, number> {
+  return settlements.filter((item) => getCurrency(item) === currency).reduce<Record<string, number>>((totals, settlement) => {
     totals[settlement.toPersonId] = (totals[settlement.toPersonId] ?? 0) + settlement.amountMinor;
     return totals;
   }, {});
 }
 
-export function getTripTotalMinor(trip: Trip): number {
-  return trip.expenses.reduce((total, expense) => total + expense.amountMinor, 0);
+export function getTripTotalMinor(trip: Trip, currency = getCurrency(trip)): number {
+  return filterTripByCurrency(trip, currency).expenses.reduce((total, expense) => total + expense.amountMinor, 0);
 }

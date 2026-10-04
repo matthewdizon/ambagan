@@ -34,3 +34,15 @@ describe("share links", () => {
     expect(decodeTripFromHash(url.split("#")[1])).toEqual(trip);
   });
 });
+
+
+describe("multi-currency shares", () => {
+  it("preserves currencies, minor units, and the last-used currency", () => {
+    const mixed: Trip = { ...trip, lastExpenseCurrency: "JPY", expenses: [{ id: "e", currency: "JPY", description: "Train", amountMinor: 101, paidByPersonId: "a", shares: [{ personId: "a", amountMinor: 101 }], splitType: "equal", createdAt: trip.createdAt }], payments: [{ id: "p", currency: "KWD", amountMinor: 1005, fromPersonId: "a", toPersonId: "b", createdAt: trip.createdAt }] };
+    expect(decodeTripFromHash(encodeTripForHash(mixed))).toEqual(mixed);
+  });
+
+  it("rejects unsupported currencies in shared data", () => {
+    expect(decodeTripFromHash(encodeTripForHash({ ...trip, currency: "NOT_A_CURRENCY" }))).toBeNull();
+  });
+});

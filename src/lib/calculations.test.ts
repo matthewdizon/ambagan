@@ -37,9 +37,9 @@ describe("calculatePersonBalances", () => {
     ]);
 
     expect(calculatePersonBalances(trip)).toEqual([
-      { personId: "a", paidMinor: 90000, shareMinor: 30000, balanceMinor: 60000 },
-      { personId: "b", paidMinor: 0, shareMinor: 30000, balanceMinor: -30000 },
-      { personId: "c", paidMinor: 0, shareMinor: 30000, balanceMinor: -30000 }
+      { currency: "PHP", personId: "a", paidMinor: 90000, shareMinor: 30000, balanceMinor: 60000 },
+      { currency: "PHP", personId: "b", paidMinor: 0, shareMinor: 30000, balanceMinor: -30000 },
+      { currency: "PHP", personId: "c", paidMinor: 0, shareMinor: 30000, balanceMinor: -30000 }
     ]);
   });
 
@@ -104,9 +104,9 @@ describe("calculatePersonBalances", () => {
     ]);
 
     expect(calculatePersonBalances(trip)).toEqual([
-      { personId: "a", paidMinor: 250000, shareMinor: 50000, balanceMinor: 200000 },
-      { personId: "b", paidMinor: 0, shareMinor: 100000, balanceMinor: -100000 },
-      { personId: "c", paidMinor: 0, shareMinor: 100000, balanceMinor: -100000 }
+      { currency: "PHP", personId: "a", paidMinor: 250000, shareMinor: 50000, balanceMinor: 200000 },
+      { currency: "PHP", personId: "b", paidMinor: 0, shareMinor: 100000, balanceMinor: -100000 },
+      { currency: "PHP", personId: "c", paidMinor: 0, shareMinor: 100000, balanceMinor: -100000 }
     ]);
   });
 
@@ -141,17 +141,17 @@ describe("calculatePersonBalances", () => {
     ]);
 
     expect(calculatePersonBalances(trip)).toEqual([
-      { personId: "a", paidMinor: 120000, shareMinor: 50000, balanceMinor: 70000 },
-      { personId: "b", paidMinor: 30000, shareMinor: 50000, balanceMinor: -20000 },
-      { personId: "c", paidMinor: 0, shareMinor: 50000, balanceMinor: -50000 }
+      { currency: "PHP", personId: "a", paidMinor: 120000, shareMinor: 50000, balanceMinor: 70000 },
+      { currency: "PHP", personId: "b", paidMinor: 30000, shareMinor: 50000, balanceMinor: -20000 },
+      { currency: "PHP", personId: "c", paidMinor: 0, shareMinor: 50000, balanceMinor: -50000 }
     ]);
   });
 
   it("returns zero balances for a trip with no expenses", () => {
     expect(calculatePersonBalances(tripWithExpenses([]))).toEqual([
-      { personId: "a", paidMinor: 0, shareMinor: 0, balanceMinor: 0 },
-      { personId: "b", paidMinor: 0, shareMinor: 0, balanceMinor: 0 },
-      { personId: "c", paidMinor: 0, shareMinor: 0, balanceMinor: 0 }
+      { currency: "PHP", personId: "a", paidMinor: 0, shareMinor: 0, balanceMinor: 0 },
+      { currency: "PHP", personId: "b", paidMinor: 0, shareMinor: 0, balanceMinor: 0 },
+      { currency: "PHP", personId: "c", paidMinor: 0, shareMinor: 0, balanceMinor: 0 }
     ]);
   });
 
@@ -184,9 +184,9 @@ describe("calculatePersonBalances", () => {
     };
 
     expect(calculatePersonBalances(trip)).toEqual([
-      { personId: "a", paidMinor: 90000, shareMinor: 30000, balanceMinor: 30000 },
-      { personId: "b", paidMinor: 0, shareMinor: 30000, balanceMinor: 0 },
-      { personId: "c", paidMinor: 0, shareMinor: 30000, balanceMinor: -30000 }
+      { currency: "PHP", personId: "a", paidMinor: 90000, shareMinor: 30000, balanceMinor: 30000 },
+      { currency: "PHP", personId: "b", paidMinor: 0, shareMinor: 30000, balanceMinor: 0 },
+      { currency: "PHP", personId: "c", paidMinor: 0, shareMinor: 30000, balanceMinor: -30000 }
     ]);
   });
 });
@@ -200,8 +200,8 @@ describe("calculateSettlements", () => {
     ]);
 
     expect(settlements).toEqual([
-      { fromPersonId: "b", toPersonId: "a", amountMinor: 30000 },
-      { fromPersonId: "c", toPersonId: "a", amountMinor: 30000 }
+      { currency: "PHP", fromPersonId: "b", toPersonId: "a", amountMinor: 30000 },
+      { currency: "PHP", fromPersonId: "c", toPersonId: "a", amountMinor: 30000 }
     ]);
   });
 
@@ -214,9 +214,9 @@ describe("calculateSettlements", () => {
     ]);
 
     expect(settlements).toEqual([
-      { fromPersonId: "c", toPersonId: "a", amountMinor: 40000 },
-      { fromPersonId: "d", toPersonId: "a", amountMinor: 10000 },
-      { fromPersonId: "d", toPersonId: "b", amountMinor: 20000 }
+      { currency: "PHP", fromPersonId: "c", toPersonId: "a", amountMinor: 40000 },
+      { currency: "PHP", fromPersonId: "d", toPersonId: "a", amountMinor: 10000 },
+      { currency: "PHP", fromPersonId: "d", toPersonId: "b", amountMinor: 20000 }
     ]);
   });
 
@@ -403,9 +403,9 @@ describe("calculateDirectSettlements", () => {
     ]);
 
     expect(calculateDirectSettlements(trip)).toEqual([
-      { fromPersonId: "b", toPersonId: "a", amountMinor: 20000 },
-      { fromPersonId: "c", toPersonId: "a", amountMinor: 30000 },
-      { fromPersonId: "c", toPersonId: "b", amountMinor: 10000 }
+      { currency: "PHP", fromPersonId: "b", toPersonId: "a", amountMinor: 20000 },
+      { currency: "PHP", fromPersonId: "c", toPersonId: "a", amountMinor: 30000 },
+      { currency: "PHP", fromPersonId: "c", toPersonId: "b", amountMinor: 10000 }
     ]);
   });
 
@@ -464,8 +464,8 @@ describe("calculateDirectSettlements", () => {
     };
 
     expect(calculateDirectSettlements(trip)).toEqual([
-      { fromPersonId: "b", toPersonId: "a", amountMinor: 20000 },
-      { fromPersonId: "c", toPersonId: "a", amountMinor: 30000 }
+      { currency: "PHP", fromPersonId: "b", toPersonId: "a", amountMinor: 20000 },
+      { currency: "PHP", fromPersonId: "c", toPersonId: "a", amountMinor: 30000 }
     ]);
   });
 });
@@ -511,5 +511,55 @@ describe("getTripTotalMinor", () => {
         ])
       )
     ).toBe(350);
+  });
+});
+
+
+describe("multiple currencies", () => {
+  function mixedTrip(): Trip {
+    return tripWithExpenses([
+      { id: "php", description: "Legacy PHP", paidByPersonId: "a", amountMinor: 10000, shares: [{ personId: "b", amountMinor: 10000 }], splitType: "exact", createdAt: "2026-10-04T00:00:00Z" },
+      { id: "twd", currency: "TWD", description: "Taiwan dinner", paidByPersonId: "b", amountMinor: 10000, shares: [{ personId: "a", amountMinor: 10000 }], splitType: "exact", createdAt: "2026-10-04T00:00:00Z" }
+    ]);
+  }
+
+  it("does not cancel opposite debts in different currencies", () => {
+    const trip = mixedTrip();
+    const expected = [
+      { currency: "PHP", fromPersonId: "b", toPersonId: "a", amountMinor: 10000 },
+      { currency: "TWD", fromPersonId: "a", toPersonId: "b", amountMinor: 10000 }
+    ];
+    expect(calculateDirectSettlements(trip)).toEqual(expected);
+    expect(calculateSettlements(calculatePersonBalances(trip))).toEqual(expected);
+    expect(getTripTotalMinor(trip, "PHP")).toBe(10000);
+    expect(getTripTotalMinor(trip, "TWD")).toBe(10000);
+  });
+
+  it("applies payments and breakdowns only to their currency", () => {
+    const trip = mixedTrip();
+    trip.payments = [{ id: "paid", currency: "TWD", fromPersonId: "a", toPersonId: "b", amountMinor: 4000, createdAt: "2026-10-04T00:00:00Z" }];
+    const direct = calculateDirectSettlements(trip);
+    const balances = calculatePersonBalances(trip);
+    const simplified = calculateSettlements(balances);
+    expect(direct.map((item) => item.amountMinor)).toEqual([10000, 6000]);
+    expect(simplified).toEqual(direct);
+    expect(calculateDirectSettlementBreakdown(trip, direct[0])).toEqual({ owedToReceiverMinor: 10000, receiverOwedBackMinor: 0, paidToReceiverMinor: 0, paidBackMinor: 0 });
+    expect(calculateDirectSettlementBreakdown(trip, direct[1]).paidToReceiverMinor).toBe(4000);
+    expect(calculateSimplifiedSettlementBreakdown(balances, direct, simplified, simplified[1]).payerDebtMinor).toBe(6000);
+    expect(calculateSettlementReceipts(simplified, "PHP")).toEqual({ a: 10000 });
+    expect(calculateSettlementReceipts(simplified, "TWD")).toEqual({ b: 6000 });
+    const routes = calculateSimplifiedSettlementRoutes(direct, simplified);
+    const allocations = calculateSimplifiedSettlementAllocations(direct, simplified);
+    for (const settlement of simplified) {
+      expect(routes.get(settlement)?.unmatchedMinor).toBe(0);
+      expect(routes.get(settlement)?.routes.reduce((sum, route) => sum + route.amountMinor, 0)).toBe(settlement.amountMinor);
+      expect(allocations.get(settlement)?.reduce((sum, allocation) => sum + allocation.amountMinor, 0)).toBe(settlement.amountMinor);
+    }
+  });
+
+  it("tracks a payment-only currency independently", () => {
+    const trip = mixedTrip();
+    trip.payments = [{ id: "paid", currency: "JPY", fromPersonId: "a", toPersonId: "c", amountMinor: 100, createdAt: "2026-10-04T00:00:00Z" }];
+    expect(calculateSettlements(calculatePersonBalances(trip))).toContainEqual({ currency: "JPY", fromPersonId: "c", toPersonId: "a", amountMinor: 100 });
   });
 });

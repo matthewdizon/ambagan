@@ -1,3 +1,4 @@
+import { hasValidTripCurrencies } from "@/lib/money";
 import { NextResponse } from "next/server";
 import { createSharedTrip } from "@/lib/share-store";
 import type { Trip } from "@/types";
@@ -11,9 +12,10 @@ function isTrip(value: unknown): value is Trip {
   return (
     typeof trip.id === "string" &&
     typeof trip.name === "string" &&
-    trip.currency === "PHP" &&
     Array.isArray(trip.people) &&
     Array.isArray(trip.expenses) &&
+    (trip.payments === undefined || Array.isArray(trip.payments)) &&
+    hasValidTripCurrencies(trip as Trip) &&
     typeof trip.createdAt === "string" &&
     typeof trip.updatedAt === "string"
   );

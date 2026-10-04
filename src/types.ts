@@ -1,3 +1,5 @@
+export type Currency = string;
+
 export type SplitType = "equal" | "exact" | "itemized";
 
 export type Person = {
@@ -19,6 +21,8 @@ export type ExpenseLineItem = {
 };
 
 export type Expense = {
+  /** Missing on legacy PHP records. */
+  currency?: Currency;
   id: string;
   description: string;
   amountMinor: number;
@@ -31,6 +35,8 @@ export type Expense = {
 };
 
 export type Payment = {
+  /** Missing on legacy PHP records. */
+  currency?: Currency;
   id: string;
   fromPersonId: string;
   toPersonId: string;
@@ -42,7 +48,8 @@ export type Payment = {
 export type Trip = {
   id: string;
   name: string;
-  currency: "PHP";
+  currency: Currency;
+  lastExpenseCurrency?: Currency;
   people: Person[];
   expenses: Expense[];
   payments?: Payment[];
@@ -51,6 +58,7 @@ export type Trip = {
 };
 
 export type PersonBalance = {
+  currency?: Currency;
   personId: string;
   paidMinor: number;
   shareMinor: number;
@@ -58,6 +66,7 @@ export type PersonBalance = {
 };
 
 export type Settlement = {
+  currency?: Currency;
   fromPersonId: string;
   toPersonId: string;
   amountMinor: number;

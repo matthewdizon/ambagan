@@ -1,3 +1,4 @@
+import { hasValidTripCurrencies } from "@/lib/money";
 import LZString from "lz-string";
 import type { Trip } from "@/types";
 
@@ -13,7 +14,8 @@ export function decodeTripFromHash(hash: string): Trip | null {
     const json = LZString.decompressFromEncodedURIComponent(encoded);
     if (!json) return null;
 
-    return JSON.parse(json) as Trip;
+    const trip = JSON.parse(json) as Trip;
+    return Array.isArray(trip?.people) && Array.isArray(trip?.expenses) && hasValidTripCurrencies(trip) ? trip : null;
   } catch {
     return null;
   }

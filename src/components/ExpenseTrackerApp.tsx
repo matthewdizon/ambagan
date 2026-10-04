@@ -21,11 +21,11 @@ import {
   SelectTrigger
 } from "@/components/ui/select";
 import { Toaster } from "@/components/ui/sonner";
-import { calculateDirectSettlementBreakdown, calculateDirectSettlements, calculatePersonBalances, calculateSettlements, calculateSimplifiedSettlementAllocations, calculateSimplifiedSettlementBreakdown, calculateSimplifiedSettlementRoutes, getTripTotalMinor, sliceSimplifiedSettlementAllocations } from "@/lib/calculations";
+import { calculateDirectSettlementBreakdown, calculateDirectSettlements, calculatePersonBalances, calculateSettlements, calculateSimplifiedSettlementAllocations, calculateSimplifiedSettlementBreakdown, calculateSimplifiedSettlementRoutes, sliceSimplifiedSettlementAllocations } from "@/lib/calculations";
 import { decodeTripFromHash } from "@/lib/share";
 import { loadTripFromStorage, saveTripToStorage } from "@/lib/storage";
-import { formatMoney, minorToPesoInput, pesoToMinor, splitEvenly } from "@/lib/money";
-import type { Expense, ExpenseLineItem, ExpenseShare, Payment, Person, PersonBalance, Settlement, SplitType, Trip } from "@/types";
+import { formatMoney, minorToMoneyInput, moneyToMinor, splitEvenly, getCurrency, formatCurrencyTotals, SUPPORTED_CURRENCIES, getCurrencyDigits, hasValidTripCurrencies, getTripCurrencies } from "@/lib/money";
+import type { Currency, Expense, ExpenseLineItem, ExpenseShare, Payment, Person, PersonBalance, Settlement, SplitType, Trip } from "@/types";
 import { toast } from "sonner";
 
 type ExpenseLineItemDraft = {
@@ -36,6 +36,7 @@ type ExpenseLineItemDraft = {
 };
 
 type ExpenseDraft = {
+  currency: Currency;
   description: string;
   amount: string;
   date: string;
@@ -52,6 +53,7 @@ type ExpenseDraftError = {
 };
 
 type PaymentDraft = {
+  currency: Currency;
   fromPersonId: string;
   toPersonId: string;
   amount: string;
@@ -72,6 +74,7 @@ type ConfirmDialogState = {
 };
 
 const emptyDraft: ExpenseDraft = {
+  currency: "PHP",
   description: "",
   amount: "",
   date: "",
@@ -83,6 +86,7 @@ const emptyDraft: ExpenseDraft = {
 };
 
 const emptyPaymentDraft: PaymentDraft = {
+  currency: "PHP",
   fromPersonId: "",
   toPersonId: "",
   amount: "",
@@ -168,8 +172,9 @@ function getAvatarStyle(name: string) {
 
 function expenseToDraft(expense: Expense, people: Person[]): ExpenseDraft {
   return {
+    currency: getCurrency(expense),
     description: expense.description,
-    amount: minorToPesoInput(expense.amountMinor),
+    amount: minorToMoneyInput(expense.amountMinor, getCurrency(expense)),
     date: getExpenseDate(expense),
     paidByPersonId: expense.paidByPersonId,
     splitType: expense.splitType,
@@ -177,20 +182,20 @@ function expenseToDraft(expense: Expense, people: Person[]): ExpenseDraft {
     exactShares: Object.fromEntries(
       people.map((person) => {
         const share = expense.shares.find((item) => item.personId === person.id);
-        return [person.id, share ? minorToPesoInput(share.amountMinor) : ""];
+        return [person.id, share ? minorToMoneyInput(share.amountMinor, getCurrency(expense)) : ""];
       })
     ),
     lineItems: expense.lineItems?.map((item) => ({
       id: item.id,
       description: item.description,
-      amount: minorToPesoInput(item.amountMinor),
+      amount: minorToMoneyInput(item.amountMinor, getCurrency(expense)),
       participantIds: item.participantIds
     })) ?? []
   };
 }
 
 function getItemizedAmountMinor(draft: ExpenseDraft): number {
-  return draft.lineItems.reduce((total, item) => total + pesoToMinor(item.amount), 0);
+  return draft.lineItems.reduce((total, item) => total + moneyToMinor(item.amount, draft.currency), 0);
 }
 
 function aggregateShares(shares: ExpenseShare[]): ExpenseShare[] {
@@ -205,7 +210,7 @@ function aggregateShares(shares: ExpenseShare[]): ExpenseShare[] {
 
 function buildLineItems(draft: ExpenseDraft): ExpenseLineItem[] {
   return draft.lineItems.map((item) => {
-    const amountMinor = pesoToMinor(item.amount);
+    const amountMinor = moneyToMinor(item.amount, draft.currency);
 
     return {
       id: item.id,
@@ -228,12 +233,12 @@ function buildShares(draft: ExpenseDraft, amountMinor: number): ExpenseShare[] {
 
   return draft.participantIds.map((personId) => ({
     personId,
-    amountMinor: pesoToMinor(draft.exactShares[personId] ?? "")
+    amountMinor: moneyToMinor(draft.exactShares[personId] ?? "", draft.currency)
   }));
 }
 
 function validateExpenseDraft(draft: ExpenseDraft): ExpenseDraftError | null {
-  const amountMinor = draft.splitType === "itemized" ? getItemizedAmountMinor(draft) : pesoToMinor(draft.amount);
+  const amountMinor = draft.splitType === "itemized" ? getItemizedAmountMinor(draft) : moneyToMinor(draft.amount, draft.currency);
 
   if (!draft.description.trim()) return { field: "description", message: "Add a description." };
   if (!draft.paidByPersonId) return { field: "paidByPersonId", message: "Choose who paid." };
@@ -242,7 +247,7 @@ function validateExpenseDraft(draft: ExpenseDraft): ExpenseDraftError | null {
     if (draft.lineItems.length === 0) return { field: "lineItems", message: "Add at least one item." };
 
     for (const item of draft.lineItems) {
-      const itemAmountMinor = pesoToMinor(item.amount);
+      const itemAmountMinor = moneyToMinor(item.amount, draft.currency);
       if (!item.description.trim()) return { field: "lineItems", message: "Each item needs a name." };
       if (!Number.isFinite(itemAmountMinor) || itemAmountMinor <= 0) {
         return { field: "lineItems", message: "Each item needs a valid amount greater than zero." };
@@ -252,6 +257,7 @@ function validateExpenseDraft(draft: ExpenseDraft): ExpenseDraftError | null {
       }
     }
 
+    if (!Number.isSafeInteger(amountMinor)) return { field: "lineItems", message: "The itemized total is too large." };
     return null;
   }
 
@@ -270,7 +276,7 @@ function validateExpenseDraft(draft: ExpenseDraft): ExpenseDraftError | null {
 
     const totalShares = shares.reduce((total, share) => total + share.amountMinor, 0);
     if (totalShares !== amountMinor) {
-      return { field: "exactShares", message: `Exact shares must add up to ${formatMoney(amountMinor)}.` };
+      return { field: "exactShares", message: `Exact shares must add up to ${formatMoney(amountMinor, draft.currency)}.` };
     }
   }
 
@@ -285,6 +291,7 @@ function getSplitTypeLabel(splitType: SplitType) {
 function createDraftForTrip(trip: Trip): ExpenseDraft {
   return {
     ...emptyDraft,
+    currency: trip.lastExpenseCurrency ?? getCurrency(trip.expenses[0] ?? trip),
     date: getTodayInputDate(),
     paidByPersonId: trip.people[0]?.id ?? "",
     participantIds: trip.people.map((person) => person.id),
@@ -294,16 +301,18 @@ function createDraftForTrip(trip: Trip): ExpenseDraft {
 }
 
 function createPaymentDraftForTrip(trip: Trip): PaymentDraft {
+  const settlement = calculateSettlements(calculatePersonBalances(trip))[0];
   return {
     ...emptyPaymentDraft,
-    fromPersonId: trip.people[0]?.id ?? "",
-    toPersonId: trip.people.find((person) => person.id !== trip.people[0]?.id)?.id ?? "",
+    currency: getCurrency(settlement ?? trip),
+    fromPersonId: settlement?.fromPersonId ?? trip.people[0]?.id ?? "",
+    toPersonId: settlement?.toPersonId ?? trip.people.find((person) => person.id !== trip.people[0]?.id)?.id ?? "",
     date: getTodayInputDate()
   };
 }
 
 function validatePaymentDraft(draft: PaymentDraft): PaymentDraftError | null {
-  const amountMinor = pesoToMinor(draft.amount);
+  const amountMinor = moneyToMinor(draft.amount, draft.currency);
 
   if (!draft.fromPersonId) return { field: "fromPersonId", message: "Choose who paid." };
   if (!draft.toPersonId) return { field: "toPersonId", message: "Choose who received the payment." };
@@ -343,7 +352,9 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
     const loadedTrip = loadTripFromStorage();
     const loadedSharedTrip = initialSharedTrip ?? decodeTripFromHash(window.location.hash);
 
-    setTrip(loadedTrip ?? createTrip("Untitled ambagan"));
+    const editableTrip = loadedTrip ?? createTrip("Untitled ambagan");
+    setTrip(editableTrip);
+    setPaymentDraft(createPaymentDraftForTrip(loadedSharedTrip ?? editableTrip));
     setSharedTrip(loadedSharedTrip);
     setIsReady(true);
   }, [initialSharedTrip]);
@@ -367,7 +378,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
       ...current,
       date: current.date || getTodayInputDate(),
       fromPersonId: current.fromPersonId || selectedTrip.people[0].id,
-      toPersonId: current.toPersonId || (selectedTrip.people.find((person) => person.id !== selectedTrip.people[0].id)?.id ?? "")
+      toPersonId: current.toPersonId && current.toPersonId !== (current.fromPersonId || selectedTrip.people[0].id) ? current.toPersonId : (selectedTrip.people.find((person) => person.id !== (current.fromPersonId || selectedTrip.people[0].id))?.id ?? "")
     }));
   }, [editingExpenseId, selectedTrip]);
 
@@ -379,24 +390,26 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
     const groups = new Map<string, Settlement[]>();
 
     for (const settlement of visibleSettlements) {
-      groups.set(settlement.toPersonId, [...(groups.get(settlement.toPersonId) ?? []), settlement]);
+      const key = `${getCurrency(settlement)}:${settlement.toPersonId}`;
+      groups.set(key, [...(groups.get(key) ?? []), settlement]);
     }
 
-    return Array.from(groups, ([personId, transfers]) => ({
-      personId,
+    return Array.from(groups, ([key, transfers]) => ({
+      key,
+      personId: transfers[0].toPersonId,
+      currency: getCurrency(transfers[0]),
       transfers,
       amountMinor: transfers.reduce((total, transfer) => total + transfer.amountMinor, 0)
     }));
   }, [visibleSettlements]);
-  const tripTotal = selectedTrip ? getTripTotalMinor(selectedTrip) : 0;
   const payments = selectedTrip?.payments ?? [];
   const filteredExpenses = selectedTrip?.expenses.filter((expense) => !expensePayerFilter || expense.paidByPersonId === expensePayerFilter) ?? [];
   const tripMetrics = selectedTrip
     ? [
         { label: "People", value: selectedTrip.people.length.toString(), detail: "Included in this ambagan" },
         { label: "Expenses", value: selectedTrip.expenses.length.toString(), detail: "Tracked shared costs" },
-        { label: "Settled", value: formatMoney(payments.reduce((total, payment) => total + payment.amountMinor, 0)), detail: "Already paid back" },
-        { label: "Total", value: formatMoney(tripTotal), detail: "Group spend so far" }
+        { label: "Settled", value: formatCurrencyTotals(payments), detail: "Already paid back" },
+        { label: "Total", value: formatCurrencyTotals(selectedTrip.expenses), detail: "Group spend so far" }
       ]
     : [];
 
@@ -461,7 +474,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
 
     try {
       const imported = JSON.parse(await file.text()) as Trip;
-      if (!imported.name || !Array.isArray(imported.people) || !Array.isArray(imported.expenses)) {
+      if (!imported.name || !Array.isArray(imported.people) || !Array.isArray(imported.expenses) || !hasValidTripCurrencies(imported)) {
         throw new Error("Invalid trip file.");
       }
 
@@ -469,7 +482,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
       const importedTrip: Trip = {
         ...imported,
         id: createId("trip"),
-        currency: "PHP",
+        currency: imported.currency ?? "PHP",
         payments: imported.payments ?? [],
         createdAt: imported.createdAt ?? now,
         updatedAt: now
@@ -591,12 +604,13 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
       return;
     }
 
-    const amountMinor = draft.splitType === "itemized" ? getItemizedAmountMinor(draft) : pesoToMinor(draft.amount);
+    const amountMinor = draft.splitType === "itemized" ? getItemizedAmountMinor(draft) : moneyToMinor(draft.amount, draft.currency);
     const shares = buildShares(draft, amountMinor);
     const lineItems = draft.splitType === "itemized" ? buildLineItems(draft) : undefined;
     const now = new Date().toISOString();
     const expense: Expense = {
       id: editingExpenseId ?? createId("expense"),
+      currency: draft.currency,
       description: draft.description.trim(),
       amountMinor,
       paidByPersonId: draft.paidByPersonId,
@@ -611,6 +625,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
 
     updateTrip((trip) => ({
       ...trip,
+      lastExpenseCurrency: editingExpenseId ? trip.lastExpenseCurrency : draft.currency,
       expenses: editingExpenseId
         ? trip.expenses.map((item) => (item.id === editingExpenseId ? expense : item))
         : [expense, ...trip.expenses]
@@ -649,6 +664,10 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
   }
 
   function updatePaymentDraft(nextDraft: PaymentDraft) {
+    if (selectedTrip && (nextDraft.fromPersonId !== paymentDraft.fromPersonId || nextDraft.toPersonId !== paymentDraft.toPersonId)) {
+      const debt = visibleSettlements.find((item) => item.fromPersonId === nextDraft.fromPersonId && item.toPersonId === nextDraft.toPersonId);
+      if (debt) nextDraft = { ...nextDraft, currency: getCurrency(debt) };
+    }
     setPaymentDraft(nextDraft);
     if (paymentDraftError) setPaymentDraftError(null);
   }
@@ -669,7 +688,8 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
       id: createId("payment"),
       fromPersonId: paymentDraft.fromPersonId,
       toPersonId: paymentDraft.toPersonId,
-      amountMinor: pesoToMinor(paymentDraft.amount),
+      currency: paymentDraft.currency,
+      amountMinor: moneyToMinor(paymentDraft.amount, paymentDraft.currency),
       date: paymentDraft.date || getTodayInputDate(),
       createdAt: now
     };
@@ -681,7 +701,8 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
     setPaymentDraft({
       ...createPaymentDraftForTrip(selectedTrip),
       fromPersonId: payment.fromPersonId,
-      toPersonId: payment.toPersonId
+      toPersonId: payment.toPersonId,
+      currency: payment.currency ?? "PHP"
     });
     setPaymentDraftError(null);
     showNotice("success", "Payment recorded.");
@@ -700,7 +721,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
   function handleDeletePayment(payment: Payment) {
     askConfirm({
       title: "Delete payment?",
-      description: `This removes the ${formatMoney(payment.amountMinor)} payment from ${getPersonName(selectedTrip!, payment.fromPersonId)} to ${getPersonName(selectedTrip!, payment.toPersonId)} and recalculates balances.`,
+      description: `This removes the ${formatMoney(payment.amountMinor, getCurrency(payment))} payment from ${getPersonName(selectedTrip!, payment.fromPersonId)} to ${getPersonName(selectedTrip!, payment.toPersonId)} and recalculates balances.`,
       confirmLabel: "Delete payment",
       tone: "danger",
       onConfirm: () => deletePayment(payment.id)
@@ -837,7 +858,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                 ) : (
                   <h1>{selectedTrip.name}</h1>
                 )}
-                <p>{formatMoney(tripTotal)} tracked across {selectedTrip.expenses.length} expenses.</p>
+                <p>{formatCurrencyTotals(selectedTrip.expenses)} tracked across {selectedTrip.expenses.length} expenses.</p>
               </div>
               <div className="header-actions">
                 {isReadOnly ? (
@@ -915,13 +936,18 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                     <div className="empty-state">Balances will appear once people are added.</div>
                   ) : (
                     <div className="compact-balance-list">
-                      {balances.map((balance) => (
-                        <div className="compact-balance-row" key={balance.personId}>
-                          <span className="person-identity">
-                            <PersonAvatar name={getPersonName(selectedTrip, balance.personId)} />
-                            <span>{getPersonName(selectedTrip, balance.personId)}</span>
-                          </span>
-                          <span className={balance.balanceMinor >= 0 ? "positive" : "negative"}>{formatMoney(balance.balanceMinor)}</span>
+                      {getTripCurrencies(selectedTrip).map((currency) => (
+                        <div key={currency}>
+                          <h3>{currency}</h3>
+                          {balances.filter((balance) => getCurrency(balance) === currency).map((balance) => (
+                            <div className="compact-balance-row" key={balance.personId}>
+                              <span className="person-identity">
+                                <PersonAvatar name={getPersonName(selectedTrip, balance.personId)} />
+                                <span>{getPersonName(selectedTrip, balance.personId)}</span>
+                              </span>
+                              <span className={balance.balanceMinor >= 0 ? "positive" : "negative"}>{formatMoney(balance.balanceMinor, currency)}</span>
+                            </div>
+                          ))}
                         </div>
                       ))}
                     </div>
@@ -936,7 +962,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                     <p className="eyebrow">Settle up</p>
                     <h2>{simplifyTransfers ? "Simplified settlements" : "Direct settlements"}</h2>
                     <p className="panel-description">
-                      {simplifyTransfers ? "Balances are combined to clear debts with fewer payments." : "Everyone pays the people who originally covered their expenses."}
+                      {simplifyTransfers ? "Balances are combined within each currency to clear debts with fewer payments." : "Everyone pays the people who originally covered their expenses."}
                     </p>
                   </div>
                   <label className="transfer-toggle">
@@ -982,14 +1008,14 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                 ) : (
                   <div className="settlement-groups">
                     {settlementGroups.map((group) => (
-                      <details className="settlement-group" key={group.personId} open>
+                      <details className="settlement-group" key={group.key} open>
                         <summary>
                           <span className="recipient-identity">
                             <PersonAvatar name={getPersonName(selectedTrip, group.personId)} />
                             <span><strong>{getPersonName(selectedTrip, group.personId)}</strong><small>gets back from {group.transfers.length} {group.transfers.length === 1 ? "person" : "people"}</small></span>
                           </span>
                           <span className="recipient-total">
-                            <strong>{formatMoney(group.amountMinor)}</strong>
+                            <strong>{formatMoney(group.amountMinor, group.currency)}</strong>
                             <small className="show-breakdown">View breakdown</small>
                             <small className="hide-breakdown">Hide breakdown</small>
                           </span>
@@ -1010,13 +1036,18 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                                     />
                                   ) : <DirectTransferExplanation trip={selectedTrip} transfer={transfer} />}
                                 </span>
-                                <strong>{formatMoney(transfer.amountMinor)}</strong>
+                                <strong>{formatMoney(transfer.amountMinor, getCurrency(transfer))}</strong>
+                                {!isReadOnly ? <Button variant="outline" type="button" onClick={() => {
+                                  setPaymentDraft({ fromPersonId: transfer.fromPersonId, toPersonId: transfer.toPersonId, currency: getCurrency(transfer), amount: minorToMoneyInput(transfer.amountMinor, getCurrency(transfer)), date: getTodayInputDate() });
+                                  setPaymentDraftError(null);
+                                  document.getElementById("payment-amount")?.focus();
+                                }}>Record payment</Button> : null}
                               </div>
                             </div>
                           ))}
                           <div className="breakdown-total">
                             <span>Total received</span>
-                            <strong>{formatMoney(group.amountMinor)}</strong>
+                            <strong>{formatMoney(group.amountMinor, group.currency)}</strong>
                           </div>
                         </div>
                       </details>
@@ -1035,7 +1066,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                           {payment.date ? ` on ${formatExpenseDate(payment.date)}` : ""}
                         </span>
                         <span className="settlement-actions">
-                          <strong>{formatMoney(payment.amountMinor)}</strong>
+                          <strong>{formatMoney(payment.amountMinor, getCurrency(payment))}</strong>
                           {!isReadOnly ? (
                             <Button className="danger-button" variant="destructive" type="button" onClick={() => handleDeletePayment(payment)}>
                               Delete
@@ -1088,7 +1119,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                       <div className="expense-main">
                         <div className="expense-title-row">
                           <h3>{expense.description}</h3>
-                          <strong className="expense-mobile-total">{formatMoney(expense.amountMinor)}</strong>
+                          <strong className="expense-mobile-total">{formatMoney(expense.amountMinor, getCurrency(expense))}</strong>
                         </div>
                         <p>
                           {formatExpenseDate(getExpenseDate(expense))} · Paid by {getPersonName(selectedTrip, expense.paidByPersonId)} · {getSplitTypeLabel(expense.splitType)}
@@ -1096,7 +1127,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                         <ExpenseBreakdown expense={expense} people={selectedTrip.people} />
                       </div>
                       <div className="expense-actions">
-                        <strong>{formatMoney(expense.amountMinor)}</strong>
+                        <strong>{formatMoney(expense.amountMinor, getCurrency(expense))}</strong>
                         {!isReadOnly ? (
                           <div className="compact-actions">
                             <Button className="ghost-button" variant="outline" type="button" onClick={() => handleEditExpense(expense)}>
@@ -1159,13 +1190,13 @@ function DirectTransferExplanation({ trip, transfer }: { trip: Trip; transfer: S
   const receiverName = getPersonName(trip, transfer.toPersonId);
 
   return (
-    <TransferExplanationTooltip id={`direct-transfer-${transfer.fromPersonId}-${transfer.toPersonId}`}>
-      <span><strong>{formatMoney(breakdown.owedToReceiverMinor)}</strong><small>{payerName}&apos;s share paid by {receiverName}</small></span>
-      {breakdown.receiverOwedBackMinor > 0 ? <><b>−</b><span><strong>{formatMoney(breakdown.receiverOwedBackMinor)}</strong><small>{receiverName}&apos;s share paid by {payerName}</small></span></> : null}
-      {breakdown.paidToReceiverMinor > 0 ? <><b>−</b><span><strong>{formatMoney(breakdown.paidToReceiverMinor)}</strong><small>already paid</small></span></> : null}
-      {breakdown.paidBackMinor > 0 ? <><b>+</b><span><strong>{formatMoney(breakdown.paidBackMinor)}</strong><small>payment reversed</small></span></> : null}
+    <TransferExplanationTooltip id={`direct-transfer-${transfer.fromPersonId}-${transfer.toPersonId}-${getCurrency(transfer)}`}>
+      <span><strong>{formatMoney(breakdown.owedToReceiverMinor, getCurrency(transfer))}</strong><small>{payerName}&apos;s share paid by {receiverName}</small></span>
+      {breakdown.receiverOwedBackMinor > 0 ? <><b>−</b><span><strong>{formatMoney(breakdown.receiverOwedBackMinor, getCurrency(transfer))}</strong><small>{receiverName}&apos;s share paid by {payerName}</small></span></> : null}
+      {breakdown.paidToReceiverMinor > 0 ? <><b>−</b><span><strong>{formatMoney(breakdown.paidToReceiverMinor, getCurrency(transfer))}</strong><small>already paid</small></span></> : null}
+      {breakdown.paidBackMinor > 0 ? <><b>+</b><span><strong>{formatMoney(breakdown.paidBackMinor, getCurrency(transfer))}</strong><small>payment reversed</small></span></> : null}
       <b>=</b>
-      <span><strong>{formatMoney(transfer.amountMinor)}</strong><small>remaining</small></span>
+      <span><strong>{formatMoney(transfer.amountMinor, getCurrency(transfer))}</strong><small>remaining</small></span>
     </TransferExplanationTooltip>
   );
 }
@@ -1202,25 +1233,25 @@ function SimplifiedTransferExplanation({
   const directRouteIndex = routeBreakdown?.routes.findIndex((route) => route.personIds.length === 2) ?? -1;
 
   return (
-    <TransferExplanationTooltip detailed id={`simplified-transfer-${transfer.fromPersonId}-${transfer.toPersonId}`} title={`Why ${personName} pays ${receiverName}`}>
+    <TransferExplanationTooltip detailed id={`simplified-transfer-${transfer.fromPersonId}-${transfer.toPersonId}-${getCurrency(transfer)}`} title={`Why ${personName} pays ${receiverName}`}>
       <span className="explanation-columns">
         <span className="explanation-list">
           <strong>Before simplifying, {personName} would pay</strong>
-          {breakdown.outgoingDebts.map((item) => <span key={item.toPersonId}><small>{getPersonName(trip, item.toPersonId)}</small><b>{formatMoney(item.amountMinor)}</b></span>)}
-          <span className="explanation-subtotal"><small>Total going out</small><b>{formatMoney(breakdown.outgoingTotalMinor)}</b></span>
+          {breakdown.outgoingDebts.map((item) => <span key={item.toPersonId}><small>{getPersonName(trip, item.toPersonId)}</small><b>{formatMoney(item.amountMinor, getCurrency(transfer))}</b></span>)}
+          <span className="explanation-subtotal"><small>Total going out</small><b>{formatMoney(breakdown.outgoingTotalMinor, getCurrency(transfer))}</b></span>
         </span>
         <span className="explanation-list">
           <strong>{personName} would receive</strong>
-          {breakdown.incomingDebts.length > 0 ? breakdown.incomingDebts.map((item) => <span key={item.fromPersonId}><small>from {getPersonName(trip, item.fromPersonId)}</small><b>{formatMoney(item.amountMinor)}</b></span>) : <small>Nothing</small>}
-          <span className="explanation-subtotal"><small>Total coming in</small><b>{formatMoney(breakdown.incomingTotalMinor)}</b></span>
+          {breakdown.incomingDebts.length > 0 ? breakdown.incomingDebts.map((item) => <span key={item.fromPersonId}><small>from {getPersonName(trip, item.fromPersonId)}</small><b>{formatMoney(item.amountMinor, getCurrency(transfer))}</b></span>) : <small>Nothing</small>}
+          <span className="explanation-subtotal"><small>Total coming in</small><b>{formatMoney(breakdown.incomingTotalMinor, getCurrency(transfer))}</b></span>
         </span>
       </span>
       <span className="plain-equation">
-        <span><small>Would pay</small><b>{formatMoney(breakdown.outgoingTotalMinor)}</b></span>
+        <span><small>Would pay</small><b>{formatMoney(breakdown.outgoingTotalMinor, getCurrency(transfer))}</b></span>
         <b>−</b>
-        <span><small>Would receive</small><b>{formatMoney(breakdown.incomingTotalMinor)}</b></span>
+        <span><small>Would receive</small><b>{formatMoney(breakdown.incomingTotalMinor, getCurrency(transfer))}</b></span>
         <b>=</b>
-        <span><small>{personName}&apos;s net debt</small><strong>{formatMoney(breakdown.payerDebtMinor)}</strong></span>
+        <span><small>{personName}&apos;s net debt</small><strong>{formatMoney(breakdown.payerDebtMinor, getCurrency(transfer))}</strong></span>
       </span>
       <span className="routing-explanation">
         <strong>This payment combines</strong>
@@ -1231,20 +1262,20 @@ function SimplifiedTransferExplanation({
 
           return (
             <small key={`${route.personIds.join("-")}-${index}`}>
-              <b>{formatMoney(amountMinor)}</b> · {route.personIds.length === 2 ? "direct debt" : names.join(" → ")}
-              {priorUseTotal > 0 ? ` (${formatMoney(priorUseTotal)} already simplified)` : null}
+              <b>{formatMoney(amountMinor, getCurrency(transfer))}</b> · {route.personIds.length === 2 ? "direct debt" : names.join(" → ")}
+              {priorUseTotal > 0 ? ` (${formatMoney(priorUseTotal, getCurrency(transfer))} already simplified)` : null}
             </small>
           );
         })}
         {directRouteIndex === -1 && additionalDirectDebtMinor > 0 ? (
-          <small><b>{formatMoney(additionalDirectDebtMinor)}</b> · direct debt</small>
+          <small><b>{formatMoney(additionalDirectDebtMinor, getCurrency(transfer))}</b> · direct debt</small>
         ) : null}
         {remainingBalanceMatches.map((allocation, index) => (
           <small key={`${allocation.payerOwesPersonId}-${allocation.receiverOwedByPersonId}-${index}`}>
-            <b>{formatMoney(allocation.amountMinor)}</b> · {personName}&apos;s debt to {getPersonName(trip, allocation.payerOwesPersonId)} matched with {getPersonName(trip, allocation.receiverOwedByPersonId)}&apos;s debt to {receiverName}
+            <b>{formatMoney(allocation.amountMinor, getCurrency(transfer))}</b> · {personName}&apos;s debt to {getPersonName(trip, allocation.payerOwesPersonId)} matched with {getPersonName(trip, allocation.receiverOwedByPersonId)}&apos;s debt to {receiverName}
           </small>
         ))}
-        <span className="routing-total"><small>{personName} pays {receiverName}</small><b>{formatMoney(transfer.amountMinor)}</b></span>
+        <span className="routing-total"><small>{personName} pays {receiverName}</small><b>{formatMoney(transfer.amountMinor, getCurrency(transfer))}</b></span>
       </span>
     </TransferExplanationTooltip>
   );
@@ -1335,6 +1366,23 @@ function TripActions({
   );
 }
 
+const currencyNames = new Intl.DisplayNames(["en"], { type: "currency" });
+const currencyOptions = ["PHP", "TWD", ...SUPPORTED_CURRENCIES.filter((currency) => currency !== "PHP" && currency !== "TWD")];
+
+function CurrencySelect({ value, onValueChange }: { value: Currency; onValueChange: (currency: Currency) => void }) {
+  return (
+    <label>
+      Currency
+      <Select value={value} onValueChange={(currency) => { if (currency) onValueChange(currency); }}>
+        <SelectTrigger className="w-full"><span>{value}</span></SelectTrigger>
+        <SelectContent>
+          {currencyOptions.map((currency) => <SelectItem key={currency} value={currency}>{currency} — {currencyNames.of(currency)}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </label>
+  );
+}
+
 function PaymentForm({
   draft,
   error,
@@ -1350,6 +1398,7 @@ function PaymentForm({
 }) {
   return (
     <form className="payment-form" onSubmit={onSubmit}>
+      <CurrencySelect value={draft.currency} onValueChange={(currency) => onDraftChange({ ...draft, currency })} />
       <label>
         From
         <PersonSelect
@@ -1375,8 +1424,9 @@ function PaymentForm({
         />
       </label>
       <label>
-        Amount
+        Amount ({draft.currency}, up to {getCurrencyDigits(draft.currency)} decimals)
         <Input
+          id="payment-amount"
           aria-invalid={error?.field === "amount"}
           inputMode="decimal"
           value={draft.amount}
@@ -1441,12 +1491,12 @@ function ExpenseBreakdown({ expense, people }: { expense: Expense; people: Perso
             <div className="line-item-breakdown-row" key={item.id}>
               <div>
                 <strong>{item.description}</strong>
-                <small>{formatMoney(item.amountMinor)} split among {item.participantIds.map(personName).join(", ")}</small>
+                <small>{formatMoney(item.amountMinor, getCurrency(expense))} split among {item.participantIds.map(personName).join(", ")}</small>
               </div>
               <div className="share-list">
                 {item.shares.map((share) => (
                   <span key={`${item.id}-${share.personId}`}>
-                    {personName(share.personId)}: {formatMoney(share.amountMinor)}
+                    {personName(share.personId)}: {formatMoney(share.amountMinor, getCurrency(expense))}
                   </span>
                 ))}
               </div>
@@ -1458,7 +1508,7 @@ function ExpenseBreakdown({ expense, people }: { expense: Expense; people: Perso
         {expense.shares.map((share) => (
           <span key={`${expense.id}-${share.personId}`}>
             <small>{personName(share.personId)}</small>
-            <strong>{formatMoney(share.amountMinor)}</strong>
+            <strong>{formatMoney(share.amountMinor, getCurrency(expense))}</strong>
           </span>
         ))}
       </div>
@@ -1553,7 +1603,9 @@ function ExpenseForm({
 
   return (
     <form className="expense-form" onSubmit={onSubmit}>
+      <p className="panel-description">Amounts are in {draft.currency}, with up to {getCurrencyDigits(draft.currency)} decimal places. Changing currency keeps the entered amount.</p>
       <div className="form-grid">
+        <CurrencySelect value={draft.currency} onValueChange={(currency) => onDraftChange({ ...draft, currency })} />
         <label>
           Description
           <Input
@@ -1569,7 +1621,7 @@ function ExpenseForm({
             inputMode="decimal"
             disabled={draft.splitType === "itemized"}
             value={draft.amount}
-            placeholder={draft.splitType === "itemized" ? formatMoney(itemizedTotalMinor) : undefined}
+            placeholder={draft.splitType === "itemized" && Number.isFinite(itemizedTotalMinor) ? formatMoney(itemizedTotalMinor, draft.currency) : undefined}
             onChange={(event) => onDraftChange({ ...draft, amount: event.target.value })}
           />
         </label>
@@ -1629,6 +1681,7 @@ function ExpenseForm({
           error={error}
           people={people}
           lineItems={draft.lineItems}
+          currency={draft.currency}
           totalMinor={itemizedTotalMinor}
           onAddLineItem={onAddLineItem}
           onLineItemChange={onLineItemChange}
@@ -1683,6 +1736,7 @@ function ExpenseForm({
 }
 
 function LineItemEditor({
+  currency,
   error,
   people,
   lineItems,
@@ -1694,6 +1748,7 @@ function LineItemEditor({
   error: ExpenseDraftError | null;
   people: Person[];
   lineItems: ExpenseLineItemDraft[];
+  currency: Currency;
   totalMinor: number;
   onAddLineItem: () => void;
   onLineItemChange: (lineItemId: string, nextLineItem: ExpenseLineItemDraft) => void;
@@ -1718,12 +1773,12 @@ function LineItemEditor({
     <section className="line-item-editor" aria-invalid={error?.field === "lineItems"}>
       <div className="participant-toolbar">
         <span>Itemized breakdown</span>
-        <strong>{formatMoney(totalMinor)}</strong>
+        <strong>{Number.isFinite(totalMinor) ? formatMoney(totalMinor, currency) : "Check item amounts"}</strong>
       </div>
       <div className="line-item-list">
         {lineItems.map((item, index) => {
           const allPeopleSelected = people.length > 0 && item.participantIds.length === people.length;
-          const itemAmountMinor = pesoToMinor(item.amount);
+          const itemAmountMinor = moneyToMinor(item.amount, currency);
           const shares = splitEvenly(Number.isFinite(itemAmountMinor) ? itemAmountMinor : 0, item.participantIds);
 
           return (
@@ -1774,7 +1829,7 @@ function LineItemEditor({
                 <div className="share-list">
                   {shares.map((share) => (
                     <span key={`${item.id}-share-${share.personId}`}>
-                      {people.find((person) => person.id === share.personId)?.name ?? "Unknown"}: {formatMoney(share.amountMinor)}
+                      {people.find((person) => person.id === share.personId)?.name ?? "Unknown"}: {formatMoney(share.amountMinor, currency)}
                     </span>
                   ))}
                 </div>
