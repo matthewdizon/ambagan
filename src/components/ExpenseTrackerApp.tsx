@@ -13,7 +13,7 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { EllipsisIcon } from "lucide-react";
+import { EllipsisIcon, HandCoins, Plus, Share2, LoaderCircle } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -328,6 +328,8 @@ function validatePaymentDraft(draft: PaymentDraft): PaymentDraftError | null {
 
 export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedTrip?: Trip | null }) {
   const [isReady, setIsReady] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
+  const [isPaymentFormOpen, setIsPaymentFormOpen] = useState(false);
   const [trip, setTrip] = useState<Trip | null>(null);
   const [sharedTrip, setSharedTrip] = useState<Trip | null>(null);
   const [newPersonName, setNewPersonName] = useState("");
@@ -406,10 +408,10 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
   const filteredExpenses = selectedTrip?.expenses.filter((expense) => !expensePayerFilter || expense.paidByPersonId === expensePayerFilter) ?? [];
   const tripMetrics = selectedTrip
     ? [
+        { label: "Total spend", value: formatCurrencyTotals(selectedTrip.expenses), detail: "Shared by your group" },
         { label: "People", value: selectedTrip.people.length.toString(), detail: "Included in this ambagan" },
         { label: "Expenses", value: selectedTrip.expenses.length.toString(), detail: "Tracked shared costs" },
-        { label: "Settled", value: formatCurrencyTotals(payments), detail: "Already paid back" },
-        { label: "Total", value: formatCurrencyTotals(selectedTrip.expenses), detail: "Group spend so far" }
+        { label: "Settled", value: formatCurrencyTotals(payments), detail: "Already paid back" }
       ]
     : [];
 
@@ -729,8 +731,9 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
   }
 
   async function handleCopyShareLink() {
-    if (!selectedTrip) return;
+    if (!selectedTrip || isSharing) return;
 
+    setIsSharing(true);
     try {
       const response = await fetch("/api/shares", {
         method: "POST",
@@ -751,6 +754,8 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
       showNotice("success", "Read-only share link copied.");
     } catch {
       showNotice("error", "Could not copy the share link.");
+    } finally {
+      setIsSharing(false);
     }
   }
 
@@ -819,8 +824,9 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
   if (!isReady) {
     return (
       <main className="app-shell">
-        <section className="loading-panel">
-          <strong>Loading Ambagan...</strong>
+        <section className="loading-panel" role="status">
+          <LoaderCircle className="animate-spin" aria-hidden="true" />
+          <strong>Loading your ambagan…</strong>
         </section>
       </main>
     );
@@ -831,11 +837,13 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
       <Toaster position="top-center" richColors />
       <header className="topbar">
         <Button className="brand-button" variant="ghost" type="button" onClick={() => setSharedTrip(null)}>
+          <HandCoins size={30} aria-hidden="true" />
           <span>
             <strong>Ambagan</strong>
             <small>Shared expenses made simple</small>
           </span>
         </Button>
+        <small>Split fairly. Settle easily.</small>
       </header>
       <input ref={importInputRef} className="file-input" type="file" accept="application/json" onChange={handleImportTrip} />
 
@@ -871,7 +879,10 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                     <Button className="ghost-button" variant="outline" type="button" onClick={() => { setIsRenamingTrip(true); setRenameValue(selectedTrip.name); }}>
                       Rename
                     </Button>
-                    <Button type="button" onClick={handleCopyShareLink}>Copy share link</Button>
+                    <Button variant="outline" className="ghost-button" type="button" onClick={handleCopyShareLink} disabled={isSharing}>
+                      {isSharing ? <LoaderCircle className="animate-spin" aria-hidden="true" /> : <Share2 aria-hidden="true" />}
+                      {isSharing ? "Creating link…" : "Share ambagan"}
+                    </Button>
                     <TripActions
                       actions={[
                         { label: "Open JSON", onSelect: () => importInputRef.current?.click() },
@@ -900,7 +911,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                 </div>
                 {!isReadOnly ? (
                   <form className="inline-form" onSubmit={handleAddPerson}>
-                    <Input value={newPersonName} onChange={(event) => setNewPersonName(event.target.value)} aria-label="Person name" />
+                    <Input value={newPersonName} onChange={(event) => setNewPersonName(event.target.value)} aria-label="Person name" placeholder="Enter a friend’s name" />
                     <Button type="submit">Add</Button>
                   </form>
                 ) : null}
@@ -956,129 +967,6 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
               </div>
 
               <div className="main-stack">
-                <div className="panel">
-                <div className="panel-heading settlement-heading">
-                  <div>
-                    <p className="eyebrow">Settle up</p>
-                    <h2>{simplifyTransfers ? "Simplified settlements" : "Direct settlements"}</h2>
-                    <p className="panel-description">
-                      {simplifyTransfers ? "Balances are combined within each currency to clear debts with fewer payments." : "Everyone pays the people who originally covered their expenses."}
-                    </p>
-                  </div>
-                  <label className="transfer-toggle">
-                    <span>
-                      <strong>Simplify transfers</strong>
-                      <small>{simplifyTransfers ? "Fewest payments" : "Pay original spenders"}</small>
-                    </span>
-                    <button
-                      aria-checked={simplifyTransfers}
-                      aria-label="Simplify transfers"
-                      className="switch-control"
-                      role="switch"
-                      type="button"
-                      onClick={() => setSimplifyTransfers((current) => !current)}
-                    >
-                      <span />
-                    </button>
-                  </label>
-                </div>
-                {!isReadOnly ? (
-                  <div className="payment-section">
-                    <div>
-                      <h3>Record a payment</h3>
-                      <p className="panel-description">Log money that has already been sent.</p>
-                    </div>
-                    <PaymentForm
-                      draft={paymentDraft}
-                      error={paymentDraftError}
-                      people={selectedTrip.people}
-                      onSubmit={handleSubmitPayment}
-                      onDraftChange={updatePaymentDraft}
-                    />
-                  </div>
-                ) : null}
-                {visibleSettlements.length > 0 ? (
-                  <div className="transfer-overview">
-                    <h3>Who gets paid</h3>
-                    <span className="transfer-count">{visibleSettlements.length} {visibleSettlements.length === 1 ? "payment" : "payments"}</span>
-                  </div>
-                ) : null}
-                {visibleSettlements.length === 0 ? (
-                  <div className="empty-state">No one owes anything yet.</div>
-                ) : (
-                  <div className="settlement-groups">
-                    {settlementGroups.map((group) => (
-                      <details className="settlement-group" key={group.key} open>
-                        <summary>
-                          <span className="recipient-identity">
-                            <PersonAvatar name={getPersonName(selectedTrip, group.personId)} />
-                            <span><strong>{getPersonName(selectedTrip, group.personId)}</strong><small>gets back from {group.transfers.length} {group.transfers.length === 1 ? "person" : "people"}</small></span>
-                          </span>
-                          <span className="recipient-total">
-                            <strong>{formatMoney(group.amountMinor, group.currency)}</strong>
-                            <small className="show-breakdown">View breakdown</small>
-                            <small className="hide-breakdown">Hide breakdown</small>
-                          </span>
-                        </summary>
-                        <div className="settlement-breakdown">
-                          {group.transfers.map((transfer) => (
-                            <div className="breakdown-entry" key={`${transfer.fromPersonId}-${transfer.toPersonId}-${transfer.amountMinor}`}>
-                              <div className="breakdown-row">
-                                <span className="breakdown-payer">
-                                  {getPersonName(selectedTrip, transfer.fromPersonId)} pays
-                                  {simplifyTransfers ? (
-                                    <SimplifiedTransferExplanation
-                                      balances={balances}
-                                      directSettlements={directSettlements}
-                                      settlements={settlements}
-                                      trip={selectedTrip}
-                                      transfer={transfer}
-                                    />
-                                  ) : <DirectTransferExplanation trip={selectedTrip} transfer={transfer} />}
-                                </span>
-                                <strong>{formatMoney(transfer.amountMinor, getCurrency(transfer))}</strong>
-                                {!isReadOnly ? <Button variant="outline" type="button" onClick={() => {
-                                  setPaymentDraft({ fromPersonId: transfer.fromPersonId, toPersonId: transfer.toPersonId, currency: getCurrency(transfer), amount: minorToMoneyInput(transfer.amountMinor, getCurrency(transfer)), date: getTodayInputDate() });
-                                  setPaymentDraftError(null);
-                                  document.getElementById("payment-amount")?.focus();
-                                }}>Record payment</Button> : null}
-                              </div>
-                            </div>
-                          ))}
-                          <div className="breakdown-total">
-                            <span>Total received</span>
-                            <strong>{formatMoney(group.amountMinor, group.currency)}</strong>
-                          </div>
-                        </div>
-                      </details>
-                    ))}
-                  </div>
-                )}
-                <div className="settlement-section-heading recorded-heading"><h3>Payment history</h3></div>
-                {payments.length === 0 ? (
-                  <div className="empty-state">No payments recorded yet.</div>
-                ) : (
-                  <div className="settlement-list">
-                    {payments.map((payment) => (
-                      <div className="settlement-row" key={payment.id}>
-                        <span>
-                          {getPersonName(selectedTrip, payment.fromPersonId)} paid {getPersonName(selectedTrip, payment.toPersonId)}
-                          {payment.date ? ` on ${formatExpenseDate(payment.date)}` : ""}
-                        </span>
-                        <span className="settlement-actions">
-                          <strong>{formatMoney(payment.amountMinor, getCurrency(payment))}</strong>
-                          {!isReadOnly ? (
-                            <Button className="danger-button" variant="destructive" type="button" onClick={() => handleDeletePayment(payment)}>
-                              Delete
-                            </Button>
-                          ) : null}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                </div>
-
                 <section className="panel">
               <div className="panel-heading">
                 <div>
@@ -1087,19 +975,20 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                 </div>
                 {!isReadOnly ? (
                   <Button type="button" onClick={openAddExpenseDialog} disabled={selectedTrip.people.length === 0}>
-                    Add ambag
+                    <Plus aria-hidden="true" /> Add ambag
                   </Button>
                 ) : null}
               </div>
               {selectedTrip.expenses.length > 0 ? (
                 <div className="filter-bar" aria-label="Filter expenses by payer">
-                  <Button className={expensePayerFilter === null ? "filter-button active" : "filter-button"} type="button" onClick={() => setExpensePayerFilter(null)}>
+                  <Button aria-pressed={expensePayerFilter === null} className={expensePayerFilter === null ? "filter-button active" : "filter-button"} type="button" onClick={() => setExpensePayerFilter(null)}>
                     All
                   </Button>
                   {selectedTrip.people.map((person) => (
                     <Button
                       className={expensePayerFilter === person.id ? "filter-button active" : "filter-button"}
                       key={person.id}
+                      aria-pressed={expensePayerFilter === person.id}
                       type="button"
                       onClick={() => setExpensePayerFilter((current) => current === person.id ? null : person.id)}
                     >
@@ -1144,6 +1033,126 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                 </div>
               )}
                 </section>
+                <div className="panel">
+                <div className="panel-heading settlement-heading">
+                  <div>
+                    <p className="eyebrow">Settle up</p>
+                    <h2>{simplifyTransfers ? "Simplified settlements" : "Direct settlements"}</h2>
+                    <p className="panel-description">
+                      {simplifyTransfers ? "Balances are combined within each currency to clear debts with fewer payments." : "Everyone pays the people who originally covered their expenses."}
+                    </p>
+                  </div>
+                  <label className="transfer-toggle">
+                    <span>
+                      <strong>Simplify transfers</strong>
+                      <small>{simplifyTransfers ? "Fewest payments" : "Pay original spenders"}</small>
+                    </span>
+                    <button
+                      aria-checked={simplifyTransfers}
+                      aria-label="Simplify transfers"
+                      className="switch-control"
+                      role="switch"
+                      type="button"
+                      onClick={() => setSimplifyTransfers((current) => !current)}
+                    >
+                      <span />
+                    </button>
+                  </label>
+                </div>
+                {!isReadOnly ? (
+                  <details className="payment-section" open={isPaymentFormOpen} onToggle={(event) => setIsPaymentFormOpen(event.currentTarget.open)}>
+                    <summary>Record a payment <span>Log money already sent</span></summary>
+                    <PaymentForm
+                      draft={paymentDraft}
+                      error={paymentDraftError}
+                      people={selectedTrip.people}
+                      onSubmit={handleSubmitPayment}
+                      onDraftChange={updatePaymentDraft}
+                    />
+                  </details>
+                ) : null}
+                {visibleSettlements.length > 0 ? (
+                  <div className="transfer-overview">
+                    <h3>Who gets paid</h3>
+                    <span className="transfer-count">{visibleSettlements.length} {visibleSettlements.length === 1 ? "payment" : "payments"}</span>
+                  </div>
+                ) : null}
+                {visibleSettlements.length === 0 ? (
+                  <div className="empty-state">No one owes anything yet.</div>
+                ) : (
+                  <div className="settlement-groups">
+                    {settlementGroups.map((group) => (
+                      <details className="settlement-group" key={group.key} open>
+                        <summary>
+                          <span className="recipient-identity">
+                            <PersonAvatar name={getPersonName(selectedTrip, group.personId)} />
+                            <span><strong>{getPersonName(selectedTrip, group.personId)}</strong><small>gets back from {group.transfers.length} {group.transfers.length === 1 ? "person" : "people"}</small></span>
+                          </span>
+                          <span className="recipient-total">
+                            <strong>{formatMoney(group.amountMinor, group.currency)}</strong>
+                            <small className="show-breakdown">View breakdown</small>
+                            <small className="hide-breakdown">Hide breakdown</small>
+                          </span>
+                        </summary>
+                        <div className="settlement-breakdown">
+                          {group.transfers.map((transfer) => (
+                            <div className="breakdown-entry" key={`${transfer.fromPersonId}-${transfer.toPersonId}-${transfer.amountMinor}`}>
+                              <div className="breakdown-row">
+                                <span className="breakdown-payer">
+                                  {getPersonName(selectedTrip, transfer.fromPersonId)} pays
+                                  {simplifyTransfers ? (
+                                    <SimplifiedTransferExplanation
+                                      balances={balances}
+                                      directSettlements={directSettlements}
+                                      settlements={settlements}
+                                      trip={selectedTrip}
+                                      transfer={transfer}
+                                    />
+                                  ) : <DirectTransferExplanation trip={selectedTrip} transfer={transfer} />}
+                                </span>
+                                <strong>{formatMoney(transfer.amountMinor, getCurrency(transfer))}</strong>
+                                {!isReadOnly ? <Button variant="outline" type="button" onClick={() => {
+                                  setPaymentDraft({ fromPersonId: transfer.fromPersonId, toPersonId: transfer.toPersonId, currency: getCurrency(transfer), amount: minorToMoneyInput(transfer.amountMinor, getCurrency(transfer)), date: getTodayInputDate() });
+                                  setPaymentDraftError(null);
+                                  setIsPaymentFormOpen(true);
+                                  requestAnimationFrame(() => document.getElementById("payment-amount")?.focus());
+                                }}>Record payment</Button> : null}
+                              </div>
+                            </div>
+                          ))}
+                          <div className="breakdown-total">
+                            <span>Total received</span>
+                            <strong>{formatMoney(group.amountMinor, group.currency)}</strong>
+                          </div>
+                        </div>
+                      </details>
+                    ))}
+                  </div>
+                )}
+                <div className="settlement-section-heading recorded-heading"><h3>Payment history</h3></div>
+                {payments.length === 0 ? (
+                  <div className="empty-state">No payments recorded yet.</div>
+                ) : (
+                  <div className="settlement-list">
+                    {payments.map((payment) => (
+                      <div className="settlement-row" key={payment.id}>
+                        <span>
+                          {getPersonName(selectedTrip, payment.fromPersonId)} paid {getPersonName(selectedTrip, payment.toPersonId)}
+                          {payment.date ? ` on ${formatExpenseDate(payment.date)}` : ""}
+                        </span>
+                        <span className="settlement-actions">
+                          <strong>{formatMoney(payment.amountMinor, getCurrency(payment))}</strong>
+                          {!isReadOnly ? (
+                            <Button className="danger-button" variant="destructive" type="button" onClick={() => handleDeletePayment(payment)}>
+                              Delete
+                            </Button>
+                          ) : null}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                </div>
               </div>
             </section>
           </section>

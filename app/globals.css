@@ -5,17 +5,17 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: #f6f4ee;
+  --background: #f5f7f8;
   --background-deep: #e8efe7;
   --surface: #ffffff;
   --surface-muted: #f3f7f2;
   --surface-warm: #fff9eb;
-  --border: #d9ded2;
+  --border: #e3e8e6;
   --border-strong: #b8c8ba;
-  --text: #1f2933;
+  --text: #20332c;
   --text-muted: #69736c;
   --muted: #f3f7f2;
-  --primary: #2f7d5c;
+  --primary: #16866a;
   --primary-dark: #195940;
   --primary-soft: #e4f2ea;
   --accent: #fff1c8;
@@ -25,7 +25,7 @@
   --success: #2e9d6f;
   --success-soft: #e5f5ee;
   --shadow: 0 18px 48px rgba(31, 41, 51, 0.1);
-  --shadow-soft: 0 8px 24px rgba(31, 41, 51, 0.055);
+  --shadow-soft: 0 2px 8px rgba(31, 41, 51, 0.025);
   --foreground: #1f2933;
   --card: #ffffff;
   --card-foreground: #1f2933;
@@ -84,7 +84,7 @@ button {
   color: #fff;
   cursor: pointer;
   padding: 0 14px;
-  font-weight: 800;
+  font-weight: 600;
   transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
 }
 
@@ -126,7 +126,7 @@ label {
   gap: 7px;
   color: var(--text-muted);
   font-size: 0.9rem;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 h1,
@@ -138,9 +138,10 @@ p {
 
 h1 {
   max-width: 860px;
-  font-size: clamp(2.25rem, 4vw, 4rem);
-  line-height: 0.98;
-  letter-spacing: 0;
+  font-size: clamp(1.75rem, 3vw, 2.6rem);
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  overflow-wrap: anywhere;
 }
 
 h2 {
@@ -159,7 +160,7 @@ small {
 
 .app-shell {
   min-height: 100vh;
-  padding: 24px;
+  padding: 28px 32px 56px;
 }
 
 .topbar {
@@ -167,12 +168,13 @@ small {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  max-width: 1440px;
-  margin: 0 auto 18px;
+  max-width: 1240px;
+  margin: 0 auto 28px;
 }
 
 .brand-button {
   display: flex;
+  gap: 12px;
   align-items: center;
   min-height: 48px;
   background: transparent;
@@ -270,7 +272,7 @@ small {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 18px;
-  max-width: 1440px;
+  max-width: 1240px;
   margin: 0 auto;
   align-items: start;
 }
@@ -315,11 +317,11 @@ small {
   justify-content: space-between;
   gap: 18px;
   overflow: visible;
-  border: 1px solid rgba(25, 89, 64, 0.16);
-  border-radius: 8px;
-  background: var(--surface);
-  box-shadow: var(--shadow);
-  padding: 30px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 12px 0 8px;
 }
 
 .trip-header > div:first-child {
@@ -340,8 +342,8 @@ small {
 .eyebrow {
   margin-bottom: 4px;
   font-size: 0.72rem;
-  font-weight: 900;
-  letter-spacing: 0;
+  font-weight: 700;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -353,7 +355,8 @@ small {
 }
 
 .two-column {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(260px, 0.8fr) minmax(0, 2fr);
+  gap: 22px;
   align-items: start;
 }
 
@@ -371,23 +374,37 @@ small {
 
 .metric {
   display: grid;
+  min-width: 0;
   gap: 7px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.9);
-  padding: 18px;
+  padding: 22px;
+}
+
+.metric:first-child {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+  color: white;
+}
+
+.metric:first-child span,
+.metric:first-child small {
+  color: #d0e9df;
 }
 
 .metric span {
   color: var(--text-muted);
-  font-weight: 900;
+  font-weight: 700;
   text-transform: uppercase;
   font-size: 0.72rem;
 }
 
 .metric strong {
   overflow-wrap: anywhere;
-  font-size: 1.55rem;
+  font-size: clamp(1.3rem, 2.5vw, 1.9rem);
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
   line-height: 1.08;
 }
 
@@ -411,7 +428,9 @@ small {
 .empty-state {
   border: 1px dashed var(--border-strong);
   border-radius: 8px;
-  background: rgba(243, 247, 242, 0.64);
+  background: var(--surface-muted);
+  text-align: center;
+  line-height: 1.6;
   color: var(--text-muted);
   padding: 16px;
   font-weight: 700;
@@ -467,7 +486,7 @@ small {
   min-width: 0;
   align-items: center;
   gap: 10px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .person-identity span:last-child {
@@ -487,7 +506,7 @@ small {
   border-radius: 50%;
   color: #fff;
   font-size: 0.82rem;
-  font-weight: 900;
+  font-weight: 700;
   text-shadow: 0 1px 8px rgba(30, 38, 34, 0.35);
 }
 
@@ -591,7 +610,7 @@ small {
   color: var(--primary-dark);
   padding: 5px 9px;
   font-size: 0.75rem;
-  font-weight: 800;
+  font-weight: 600;
   white-space: nowrap;
 }
 
@@ -703,7 +722,7 @@ small {
   color: var(--primary-dark);
   padding: 0 7px;
   font-size: 0.7rem;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .why-button:hover:not(:disabled),
@@ -894,7 +913,7 @@ small {
 .breakdown-total {
   padding-bottom: 2px;
   color: var(--primary-dark);
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .settlement-actions {
@@ -926,19 +945,19 @@ small {
 
 .table-head {
   color: var(--text-muted);
-  font-weight: 900;
+  font-weight: 700;
   text-transform: uppercase;
   font-size: 0.75rem;
 }
 
 .positive {
   color: var(--primary-dark);
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .negative {
   color: var(--danger);
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .expense-form {
@@ -982,7 +1001,7 @@ small {
   gap: 12px;
   color: var(--text-muted);
   font-size: 0.9rem;
-  font-weight: 900;
+  font-weight: 700;
 }
 
 .check-row {
@@ -1118,9 +1137,11 @@ small {
 }
 
 @media (max-width: 980px) {
+  .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .workspace,
   .two-column,
-  .metrics-grid,
   .form-grid,
   .payment-form {
     grid-template-columns: 1fr;
@@ -1142,8 +1163,16 @@ small {
 }
 
 @media (max-width: 640px) {
+  .metric:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .topbar > small {
+    display: none;
+  }
+
   .app-shell {
-    padding: 10px;
+    padding: 16px;
   }
 
   .topbar,
@@ -1176,12 +1205,12 @@ small {
 
   .inline-form {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .trip-header,
   .empty-hero {
-    padding: 20px;
+    padding: 12px 0;
   }
 
   .expense-item {
@@ -1401,5 +1430,37 @@ small {
   }
   html {
     @apply font-sans;
+  }
+}
+
+.payment-section > summary {
+  cursor: pointer;
+  color: var(--primary-dark);
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 8px 0;
+}
+
+.payment-section > summary span {
+  display: block;
+  margin: 4px 0 0 16px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.payment-section[open] > summary {
+  margin-bottom: 14px;
+}
+
+summary:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
