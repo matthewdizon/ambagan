@@ -1,6 +1,8 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { CurrencyDisplay, CurrencyTotals } from "@/components/CurrencyDisplay";
+import { getExpenseDate, groupExpensesByDate } from "@/lib/expense-history";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -125,10 +127,6 @@ function getPersonName(trip: Trip, personId: string) {
 
 function getTodayInputDate() {
   return new Date().toISOString().slice(0, 10);
-}
-
-function getExpenseDate(expense: Expense) {
-  return expense.date ?? expense.createdAt.slice(0, 10);
 }
 
 function createLineItemDraft(people: Person[]): ExpenseLineItemDraft {
@@ -340,6 +338,8 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
   const [paymentDraft, setPaymentDraft] = useState<PaymentDraft>(emptyPaymentDraft);
   const [paymentDraftError, setPaymentDraftError] = useState<PaymentDraftError | null>(null);
   const [simplifyTransfers, setSimplifyTransfers] = useState(true);
+  const [expenseDateFrom, setExpenseDateFrom] = useState("");
+  const [expenseDateTo, setExpenseDateTo] = useState("");
   const [expensePayerFilter, setExpensePayerFilter] = useState<string | null>(null);
   const [editingExpenseId, setEditingExpenseId] = useState<string | null>(null);
   const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
@@ -405,7 +405,9 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
     }));
   }, [visibleSettlements]);
   const payments = selectedTrip?.payments ?? [];
-  const filteredExpenses = selectedTrip?.expenses.filter((expense) => !expensePayerFilter || expense.paidByPersonId === expensePayerFilter) ?? [];
+  const invalidDateRange = Boolean(expenseDateFrom && expenseDateTo && expenseDateFrom > expenseDateTo);
+  const expenseGroups = groupExpensesByDate(selectedTrip?.expenses ?? [], { from: expenseDateFrom, to: expenseDateTo, payer: expensePayerFilter });
+  const filteredExpenses = expenseGroups.flatMap((group) => group.expenses);
   const tripMetrics = selectedTrip
     ? [
         { label: "Total spend", value: formatCurrencyTotals(selectedTrip.expenses), detail: "Shared by your group" },
@@ -949,7 +951,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                     <div className="compact-balance-list">
                       {getTripCurrencies(selectedTrip).map((currency) => (
                         <div key={currency}>
-                          <h3>{currency}</h3>
+                          <h3><CurrencyDisplay currency={currency} /></h3>
                           {balances.filter((balance) => getCurrency(balance) === currency).map((balance) => (
                             <div className="compact-balance-row" key={balance.personId}>
                               <span className="person-identity">
@@ -997,18 +999,38 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                   ))}
                 </div>
               ) : null}
+              {selectedTrip.expenses.length > 0 ? (
+                <div className="mb-5 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <label>From date<Input type="date" value={expenseDateFrom} max={expenseDateTo || undefined} aria-invalid={invalidDateRange} onChange={(event) => setExpenseDateFrom(event.target.value)} /></label>
+                    <label>To date<Input type="date" value={expenseDateTo} min={expenseDateFrom || undefined} aria-invalid={invalidDateRange} onChange={(event) => setExpenseDateTo(event.target.value)} /></label>
+                  </div>
+                  {invalidDateRange ? <p role="alert" className="text-sm text-destructive">Choose an end date on or after the start date.</p> : null}
+                  <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-muted/50 p-3 text-sm" aria-live="polite">
+                    <span>{filteredExpenses.length} expenses · {expenseGroups.length} days</span>
+                    {filteredExpenses.length > 0 ? <strong><CurrencyTotals records={filteredExpenses} /></strong> : null}
+                    {expenseDateFrom || expenseDateTo || expensePayerFilter ? <Button variant="ghost" type="button" onClick={() => { setExpenseDateFrom(""); setExpenseDateTo(""); setExpensePayerFilter(null); }}>Clear filters</Button> : null}
+                  </div>
+                </div>
+              ) : null}
               {selectedTrip.expenses.length === 0 ? (
                 <div className="empty-state">No expenses yet. Add the first ambag when someone pays.</div>
               ) : filteredExpenses.length === 0 ? (
-                <div className="empty-state">No expenses were paid by this person.</div>
+                <div className="empty-state">No expenses match these filters. Try a different date range or payer.</div>
               ) : (
                 <div className="expense-list">
-                  {filteredExpenses.map((expense) => (
+                  {expenseGroups.map((group) => (
+                    <section key={group.date} aria-label={`Expenses for ${formatExpenseDate(group.date)}`}>
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-muted/50 px-3 py-2">
+                        <div><h3 className="text-sm font-semibold">{formatExpenseDate(group.date)}</h3><small className="text-muted-foreground">{group.expenses.length} {group.expenses.length === 1 ? "expense" : "expenses"}</small></div>
+                        <strong className="text-sm"><CurrencyTotals records={group.expenses} /></strong>
+                      </div>
+                      {group.expenses.map((expense) => (
                     <article className="expense-item" key={expense.id}>
                       <div className="expense-main">
                         <div className="expense-title-row">
                           <h3>{expense.description}</h3>
-                          <strong className="expense-mobile-total">{formatMoney(expense.amountMinor, getCurrency(expense))}</strong>
+                          <strong className="expense-mobile-total"><CurrencyDisplay currency={getCurrency(expense)} amountMinor={expense.amountMinor} /></strong>
                         </div>
                         <p>
                           {formatExpenseDate(getExpenseDate(expense))} · Paid by {getPersonName(selectedTrip, expense.paidByPersonId)} · {getSplitTypeLabel(expense.splitType)}
@@ -1016,7 +1038,7 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                         <ExpenseBreakdown expense={expense} people={selectedTrip.people} />
                       </div>
                       <div className="expense-actions">
-                        <strong>{formatMoney(expense.amountMinor, getCurrency(expense))}</strong>
+                        <strong><CurrencyDisplay currency={getCurrency(expense)} amountMinor={expense.amountMinor} /></strong>
                         {!isReadOnly ? (
                           <div className="compact-actions">
                             <Button className="ghost-button" variant="outline" type="button" onClick={() => handleEditExpense(expense)}>
@@ -1029,6 +1051,8 @@ export function ExpenseTrackerApp({ initialSharedTrip = null }: { initialSharedT
                         ) : null}
                       </div>
                     </article>
+                      ))}
+                    </section>
                   ))}
                 </div>
               )}
@@ -1383,9 +1407,9 @@ function CurrencySelect({ value, onValueChange }: { value: Currency; onValueChan
     <label>
       Currency
       <Select value={value} onValueChange={(currency) => { if (currency) onValueChange(currency); }}>
-        <SelectTrigger className="w-full"><span>{value}</span></SelectTrigger>
+        <SelectTrigger className="w-full"><CurrencyDisplay currency={value} /></SelectTrigger>
         <SelectContent>
-          {currencyOptions.map((currency) => <SelectItem key={currency} value={currency}>{currency} — {currencyNames.of(currency)}</SelectItem>)}
+          {currencyOptions.map((currency) => <SelectItem key={currency} value={currency}><CurrencyDisplay currency={currency} /> — {currencyNames.of(currency)}</SelectItem>)}
         </SelectContent>
       </Select>
     </label>
